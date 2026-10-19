@@ -1,12 +1,12 @@
 """
-CNC G-Code Generator — Modern Backend (Render-Ready)
+Advanced CNC G-Code Generator — Professional CAM Prototype
 """
 
 import os
 import uuid
 import tempfile
 import traceback
-import re
+import math
 from pathlib import Path
 from typing import List, Dict, Any, Literal
 
@@ -24,28 +24,23 @@ except ImportError as e:
     raise RuntimeError(f"Missing dependency: {e.name}. Please run pip install -r requirements.txt")
 
 # ============================================================
-# PYDANTIC MODELS
+# DATA MODELS
 # ============================================================
 class GeometryModel(BaseModel):
     units: Literal["mm", "inch"] = "mm"
     entities: List[dict] = []
     bbox: dict = {}
     source_format: str = ""
-    confidence: float = 1.0
-    warnings: List[str] = []
 
 class MachiningConfig(BaseModel):
     machine_type: Literal["mill", "lathe"]
-    controller: Literal["fanuc"] = "fanuc"
-    units: Literal["mm", "inch"] = "mm"
-    stock: dict = {}
-    tool: dict = {}
-    spindle_rpm: int = 3000
+    stock_diameter: float = 50.0
+    stock_length: float = 150.0
+    tool_diameter: float = 6.0
     feed_rate: float = 300.0
+    spindle_rpm: int = 3000
     depth_of_cut: float = 2.0
     safe_z: float = 10.0
-    coolant: bool = True
-    operation: str = "contour"
 
 class GenerateRequest(BaseModel):
     geometry: GeometryModel
@@ -68,150 +63,155 @@ def parse_dxf(path: str) -> Dict[str, Any]:
             s, en = e.dxf.start, e.dxf.end
             entities.append({"type": "line", "start": {"x": float(s.x), "y": float(s.y)}, "end": {"x": float(en.x), "y": float(en.y)}})
             points.extend([(float(s.x), float(s.y)), (float(en.x), float(en.y))])
-        elif t == "CIRCLE":
-            c, r = e.dxf.center, e.dxf.radius
-            entities.append({"type": "circle", "center": {"x": float(c.x), "y": float(c.y)}, "radius": float(r)})
-            points.extend([(float(c.x) - float(r), float(c.y) - float(r)), (float(c.x) + float(r), float(c.y) + float(r))])
-    return {"units": "mm", "entities": entities, "bbox": _bbox_from_points(points) if points else {},
-            "source_format": "dxf", "confidence": 1.0, "warnings": [] if points else ["No entities found."]}
+        elif t == "LWPOLYLINE":
+            pts = [(float(p[0]), float(p[1])) for p in e.get_points()]
+            for i in range(len(pts) - 1):
+                entities.append({"type": "line", "start": {"x": pts[i][0], "y": pts[i][1]}, "end": {"x": pts[i+1][0], "y": pts[i+1][1]}})
+            points.extend(pts)
+    return {"units": "mm", "entities": entities, "bbox": _bbox_from_points(points) if points else {}, "source_format": "dxf"}
 
-def parse_raster(path: str, scale: float = 1.0) -> Dict[str, Any]:
-    try:
-        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-        if img is None: raise ValueError("Cannot read image.")
-        edges = cv2.Canny(img, 50, 150, apertureSize=3)
-        lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=60, minLineLength=40, maxLineGap=10)
-        entities, points = [], []
-        if lines is not None:
-            for l in lines:
-                x1, y1, x2, y2 = l[0]
-                angle = abs(np.degrees(np.arctan2(y2 - y1, x2 - x1)))
-                # Filter out diagonal arrows/dimension lines
-                if not (angle < 5 or angle > 175 or 85 < angle < 95): continue
-                
-                sx1, sy1, sx2, sy2 = float(x1*scale), float(y1*scale), float(x2*scale), float(y2*scale)
-                entities.append({"type": "line", "start": {"x": sx1, "y": sy1}, "end": {"x": sx2, "y": sy2}})
-                points.extend([(sx1, sy1), (sx2, sy2)])
-                
-        return {"units": "mm", "entities": entities, "bbox": _bbox_from_points(points) if points else {},
-                "source_format": "raster", "confidence": 0.6, 
-                "warnings": ["Raster extraction is approximate. Use DXF for precise geometry."]}
-    except Exception as e:
-        raise ValueError(f"Image parsing failed: {str(e)}")
+def parse_raster(path: str) -> Dict[str, Any]:
+    img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    edges = cv2.Canny(img, 50, 150, apertureSize=3)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=60, minLineLength=40, maxLineGap=10)
+    entities, points = [], []
+    if lines is not None:
+        for l in lines:
+            x1, y1, x2, y2 = l[0]
+            angle = abs(np.degrees(np.arctan2(y2 - y1, x2 - x1)))
+            if not (angle < 5 or angle > 175 or 85 < angle < 95): continue
+            sx1, sy1, sx2, sy2 = float(x1), float(y1), float(x2), float(y2)
+            entities.append({"type": "line", "start": {"x": sx1, "y": sy1}, "end": {"x": sx2, "y": sy2}})
+            points.extend([(sx1, sy1), (sx2, sy2)])
+    return {"units": "mm", "entities": entities, "bbox": _bbox_from_points(points) if points else {}, "source_format": "raster"}
 
 # ============================================================
-# TOOLPATH GENERATION
+# ADVANCED CAM ALGORITHMS
 # ============================================================
-def generate_gcode_and_path(geom: Dict, cfg: Dict):
-    lines = []
-    toolpath_coords = [] # Store X, Y, Z for 3D frontend viewer
+def generate_lathe_gcode(cfg: MachiningConfig):
+    lines, toolpath = [], []
+    d_stock = cfg.stock_diameter
+    z_end = -cfg.stock_length
+    d_final = d_stock - 20.0 # Simulated final diameter
+    doc = cfg.depth_of_cut
     
-    # Header
     lines.append("%")
-    lines.append("O1001 (MODERN CNC GENERATOR)")
-    lines.append(f"({cfg['machine_type'].upper()} - {cfg['operation'].upper()})")
-    lines.append("G21 G17 G40 G49 G80 G90")
-    lines.append("G54")
-    lines.append(f"T{cfg['tool'].get('number', 1)} M06")
-    lines.append(f"S{cfg['spindle_rpm']} M03")
-    if cfg.get("coolant"): lines.append("M08")
-    lines.append(f"G00 Z{cfg['safe_z']:.3f}")
-
-    if cfg["machine_type"] == "mill":
-        b = geom["bbox"]
-        cx = (b["min_x"] + b["max_x"]) / 2
-        cy = (b["min_y"] + b["max_y"]) / 2
-        z_depth = cfg["stock"].get("z_bottom", -5.0)
-        
-        # Simple Pocket / Contour Logic
-        lines.append(f"G00 X{cx:.3f} Y{cy:.3f}")
-        lines.append(f"G01 Z{z_depth:.3f} F{cfg['feed_rate']/2:.3f}")
-        
-        # Dummy toolpath square to show 3D visualization
-        step = 10.0
-        for i in range(3):
-            offset = i * step
-            lines.append(f"G01 X{cx - 20 + offset:.3f} Y{cy - 20 + offset:.3f} F{cfg['feed_rate']:.3f}")
-            lines.append(f"G01 X{cx + 20 - offset:.3f} Y{cy - 20 + offset:.3f}")
-            lines.append(f"G01 X{cx + 20 - offset:.3f} Y{cy + 20 - offset:.3f}")
-            lines.append(f"G01 X{cx - 20 + offset:.3f} Y{cy + 20 - offset:.3f}")
-            lines.append(f"G01 X{cx - 20 + offset:.3f} Y{cy - 20 + offset:.3f}")
-            toolpath_coords.append([cx, cy, z_depth]) # simplified
-
-        lines.append(f"G00 Z{cfg['safe_z']:.3f}")
-
-    elif cfg["machine_type"] == "lathe":
-        stock_dia = cfg["stock"].get("diameter", 50.0)
-        z_end = cfg["stock"].get("z_end", -150.0)
-        final_dia = cfg["stock"].get("final_diameter", 30.0)
-        
-        lines.append(f"G00 X{stock_dia + 2:.3f} Z2.0")
-        
-        # Simulate G71 Roughing Cycle
-        lines.append(f"(ROUGHING CYCLE)")
-        lines.append(f"G71 U{cfg['depth_of_cut']:.3f} R0.5")
-        lines.append(f"G71 P10 Q20 U0.5 W0.1 F{cfg['feed_rate']/1000:.3f}")
-        lines.append(f"N10 G00 X{final_dia:.3f}")
-        lines.append(f"G01 Z0.0")
-        lines.append(f"Z{z_end:.3f}")
-        lines.append(f"X{stock_dia:.3f}")
-        lines.append(f"N20 G00 Z2.0")
-        
-        # Generate coords for 3D line
-        toolpath_coords = [
-            [stock_dia, 0, 2], [stock_dia, 0, z_end], [final_dia, 0, z_end]
-        ]
-        
-    # Footer
-    lines.append(f"G00 Z{cfg['safe_z']:.3f}")
-    lines.append("M09")
-    lines.append("M05")
-    lines.append("G28 U0 W0" if cfg["machine_type"] == "lathe" else "G28 X0 Y0 Z0")
-    lines.append("M30")
-    lines.append("%")
+    lines.append("O1000 (LATHE ADVANCED)")
+    lines.append("G21 G99 G40 G80 G90")
+    lines.append("G54 T0101 M06")
+    lines.append(f"S{cfg.spindle_rpm} M03 M08")
+    lines.append(f"G00 X{d_stock + 5:.3f} Z5.0")
     
-    return "\n".join(lines), toolpath_coords
+    # 3D Toolpath coords for Lathe (Z is axis, X is radius)
+    toolpath.append([d_stock/2, 0, 5.0])
+    
+    # Facing Pass
+    lines.append("(FACING)")
+    lines.append(f"G00 X{d_stock:.3f} Z0.0")
+    lines.append("G01 X-1.0 F0.2")
+    lines.append(f"G00 X{d_stock + 2:.3f} Z2.0")
+    
+    # G71 Roughing Cycle
+    lines.append("(ROUGHING CYCLE)")
+    lines.append(f"G71 U{doc:.3f} R0.5")
+    lines.append(f"G71 P100 Q200 U0.5 W0.1 F{cfg.feed_rate/1000:.3f}")
+    
+    lines.append("N100 G00 X0.0")
+    lines.append("G01 Z0.0")
+    lines.append(f"X{d_final:.3f}")
+    lines.append(f"Z{z_end + 10.0:.3f}")
+    lines.append(f"X{d_final + 10:.3f}")
+    lines.append(f"Z{z_end:.3f}")
+    lines.append(f"X{d_stock + 2:.3f}")
+    lines.append("N200 G00 Z2.0")
+    
+    # Simulate the toolpath for 3D animation
+    steps = int((d_stock - d_final) / doc) + 1
+    for i in range(steps):
+        cur_d = d_stock - (i * doc)
+        if cur_d < d_final: cur_d = d_final
+        toolpath.append([cur_d/2, 0, 2.0]) # Approach
+        toolpath.append([cur_d/2, 0, z_end]) # Cut
+        
+    lines.append(f"G00 X{d_stock + 5:.3f} Z5.0 M09 M05 M30")
+    lines.append("%")
+    return "\n".join(lines), toolpath
+
+def generate_mill_gcode(cfg: MachiningConfig):
+    lines, toolpath = [], []
+    d_tool = cfg.tool_diameter
+    stepover = d_tool * 0.7
+    doc = cfg.depth_of_cut
+    z_bottom = -5.0
+    x_size = cfg.stock_length
+    y_size = cfg.stock_diameter
+    
+    lines.append("%")
+    lines.append("O2000 (MILL ADVANCED)")
+    lines.append("G21 G94 G17 G40 G49 G80 G90")
+    lines.append("G54 T1 M06")
+    lines.append(f"S{cfg.spindle_rpm} M03 M08")
+    lines.append(f"G00 X0.0 Y0.0 Z{cfg.safe_z:.3f}")
+    
+    toolpath.append([0, 0, cfg.safe_z])
+    
+    # Z-Stepdowns
+    z_passes = int(abs(z_bottom) / doc)
+    for z_step in range(1, z_passes + 1):
+        cur_z = -z_step * doc
+        lines.append(f"(Z-DEPTH {cur_z:.3f})")
+        
+        # Zig-Zag Pocketing
+        y = 0
+        while y <= y_size:
+            lines.append(f"G00 X0.0 Y{y:.3f} Z{cur_z + 2:.3f}")
+            toolpath.append([0, y, cur_z + 2])
+            
+            lines.append(f"G01 Z{cur_z:.3f} F100.0")
+            toolpath.append([0, y, cur_z])
+            
+            lines.append(f"G01 X{x_size:.3f} F{cfg.feed_rate:.3f}")
+            toolpath.append([x_size, y, cur_z])
+            
+            y += stepover
+            
+    lines.append(f"G00 Z{cfg.safe_z:.3f} M09 M05 M30")
+    lines.append("%")
+    return "\n".join(lines), toolpath
 
 # ============================================================
-# FASTAPI APP
+# API ROUTES
 # ============================================================
-app = FastAPI(title="Modern CNC Generator")
+app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+UPLOAD_DIR = Path(tempfile.gettempdir()) / "cnc_adv"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+HERE = Path(__file__).resolve().parent
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     traceback.print_exc()
-    return JSONResponse(status_code=500, content={"detail": f"Server Error: {str(exc)}"})
-
-UPLOAD_DIR = Path(tempfile.gettempdir()) / "cnc_uploads"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-HERE = Path(__file__).resolve().parent
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 @app.post("/api/upload")
-async def upload_drawing(file: UploadFile = File(...), scale: float = Form(1.0)):
-    ext = os.path.splitext(file.filename or "")[1].lower()
+async def upload_file(file: UploadFile = File(...)):
+    ext = os.path.splitext(file.filename)[1].lower()
     save_path = UPLOAD_DIR / f"{uuid.uuid4().hex}{ext}"
     save_path.write_bytes(await file.read())
-    
     try:
         if ext == ".dxf": geom = parse_dxf(str(save_path))
-        elif ext in (".png", ".jpg", ".jpeg"): geom = parse_raster(str(save_path), scale)
-        else: raise HTTPException(400, "Unsupported format. Use DXF or Image.")
+        elif ext in (".png", ".jpg", ".jpeg"): geom = parse_raster(str(save_path))
+        else: raise HTTPException(400, "Unsupported format")
+        return {"geometry": geom, "filename": file.filename}
     except Exception as e:
-        raise HTTPException(422, f"Extraction failed: {e}")
-        
-    return {"geometry": geom, "filename": file.filename}
+        raise HTTPException(422, str(e))
 
 @app.post("/api/generate")
 async def generate(req: GenerateRequest):
-    geom = req.geometry.model_dump()
-    cfg = req.config.model_dump()
-    
-    try:
-        gcode, toolpath = generate_gcode_and_path(geom, cfg)
-    except Exception as e:
-        raise HTTPException(422, f"G-Code generation failed: {e}")
-        
+    if req.config.machine_type == "lathe":
+        gcode, toolpath = generate_lathe_gcode(req.config)
+    else:
+        gcode, toolpath = generate_mill_gcode(req.config)
     return {"gcode": gcode, "toolpath": toolpath}
 
 @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
