@@ -6,6 +6,8 @@
 <title>CNC G-Code Generator — FANUC Prototype</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<!-- Three.js for 3D Preview -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
   :root {
     --navy: #0f1e3d;
@@ -99,6 +101,9 @@
   button:hover { background: var(--navy); }
   button.secondary { background: #e2e8f0; color: var(--text); }
   button.secondary:hover { background: #cbd5e1; }
+  
+  .preview-container { display: flex; gap: 20px; flex-wrap: wrap; }
+  .preview-box { flex: 1; min-width: 300px; }
   .canvas-wrap {
     background: #0f172a;
     border-radius: 8px;
@@ -106,8 +111,10 @@
     display: flex;
     justify-content: center;
     align-items: center;
+    height: 350px;
   }
-  canvas { max-width: 100%; height: auto; display: block; }
+  canvas { max-width: 100%; max-height: 100%; display: block; }
+  
   .warning-box { margin-top: 12px; }
   .warn, .error, .ok, .info {
     font-size: 12px;
@@ -125,6 +132,10 @@
   #upload-status { font-size: 12px; color: var(--muted); margin-top: 8px; }
   .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 10px; }
   .check { flex-direction: row; align-items: center; color: var(--text); font-size: 13px; }
+  
+  /* Hide/Show classes for dynamic UI */
+  .mill-only { display: block; }
+  .lathe-only { display: none; }
 </style>
 </head>
 <body>
@@ -138,7 +149,7 @@
   <section class="card">
     <h2>1. Upload Drawing</h2>
     <div class="row">
-      <label style="flex:1;min-width:220px;">Drawing file
+      <label style="flex:1;min-width:220px;">Drawing file (Use DXF for best accuracy)
         <input type="file" id="file-input" accept=".dxf,.svg,.pdf,.png,.jpg,.jpeg" />
       </label>
       <label>Raster scale (mm/px)
@@ -150,9 +161,16 @@
   </section>
 
   <section class="card" id="analysis-screen" style="display:none;">
-    <h2>2. Drawing Analysis &amp; Preview</h2>
-    <div class="canvas-wrap">
-      <canvas id="preview-canvas" width="900" height="500"></canvas>
+    <h2>2. Drawing Analysis &amp; 3D Preview</h2>
+    <div class="preview-container">
+      <div class="preview-box">
+        <p style="font-size:12px; margin:0 0 5px 0; color:var(--muted);">2D Extracted Path</p>
+        <div class="canvas-wrap"><canvas id="preview-canvas" width="500" height="350"></canvas></div>
+      </div>
+      <div class="preview-box" id="3d-box" style="display:none;">
+        <p style="font-size:12px; margin:0 0 5px 0; color:var(--muted);">3D Revolve Preview (Lathe)</p>
+        <div class="canvas-wrap"><div id="3d-canvas-container" style="width:100%; height:100%;"></div></div>
+      </div>
     </div>
     <p id="geometry-summary" style="font-size:12px;color:var(--muted);margin:10px 0 0;"></p>
     <div id="geometry-warnings" class="warning-box"></div>
@@ -162,7 +180,7 @@
     <h2>3. Machining Configuration</h2>
     <div class="grid">
       <label>Machine
-        <select id="machine-type">
+        <select id="machine-type" onchange="toggleMachineUI()">
           <option value="mill">Mill</option>
           <option value="lathe">Lathe</option>
         </select>
@@ -173,9 +191,9 @@
           <option value="facing">Facing</option>
           <option value="pocket">Pocket</option>
           <option value="drill">Drill</option>
-          <option value="turn_rough">Turn Rough</option>
-          <option value="turn_finish">Turn Finish</option>
-          <option value="groove">Groove</option>
+          <option value="turn_rough">Turn Rough (Lathe)</option>
+          <option value="turn_finish">Turn Finish (Lathe)</option>
+          <option value="groove">Groove (Lathe)</option>
         </select>
       </label>
       <label>Units
@@ -184,7 +202,7 @@
           <option value="inch">Imperial (inch)</option>
         </select>
       </label>
-      <label>Tool Ø (mm)
+      <label>Tool Ø / Nose Radius (mm)
         <input type="number" id="tool-dia" value="6.0" step="0.1" />
       </label>
       <label>Spindle RPM
@@ -199,21 +217,24 @@
       <label>Safe Z
         <input type="number" id="safe-z" value="10.0" />
       </label>
-      <label>Stock X min
-        <input type="number" id="stock-x-min" value="0" />
-      </label>
-      <label>Stock X max
-        <input type="number" id="stock-x-max" value="100" />
-      </label>
-      <label>Stock Y min
-        <input type="number" id="stock-y-min" value="0" />
-      </label>
-      <label>Stock Y max
-        <input type="number" id="stock-y-max" value="60" />
-      </label>
-      <label>Stock Z bottom
-        <input type="number" id="stock-z-bottom" value="-5" />
-      </label>
+
+      <!-- MILL STOCK PARAMS -->
+      <div id="mill-stock" class="mill-only" style="display: contents;">
+        <label>Stock X min<input type="number" id="stock-x-min" value="0" /></label>
+        <label>Stock X max<input type="number" id="stock-x-max" value="100" /></label>
+        <label>Stock Y min<input type="number" id="stock-y-min" value="0" /></label>
+        <label>Stock Y max<input type="number" id="stock-y-max" value="60" /></label>
+        <label>Stock Z bottom<input type="number" id="stock-z-bottom" value="-5" /></label>
+      </div>
+
+      <!-- LATHE STOCK PARAMS -->
+      <div id="lathe-stock" class="lathe-only" style="display: contents;">
+        <label>Start Diameter (mm)<input type="number" id="stock-diameter" value="45" /></label>
+        <label>Z Start (mm)<input type="number" id="stock-z-start" value="0" /></label>
+        <label>Z End (mm)<input type="number" id="stock-z-end" value="-170" /></label>
+        <label>Final Diameter (mm)<input type="number" id="stock-final-dia" value="30" /></label>
+      </div>
+
       <label class="check">
         <input type="checkbox" id="coolant" checked /> Coolant
       </label>
@@ -237,6 +258,21 @@
 <script>
 let currentGeometry = null;
 let cmInstance = null;
+let scene, camera, renderer, mesh;
+
+function toggleMachineUI() {
+  const type = document.getElementById("machine-type").value;
+  if (type === "lathe") {
+    document.querySelectorAll(".mill-only").forEach(el => el.style.display = "none");
+    document.querySelectorAll(".lathe-only").forEach(el => el.style.display = "contents");
+    document.getElementById("3d-box").style.display = "block";
+    if (currentGeometry) render3D(currentGeometry);
+  } else {
+    document.querySelectorAll(".mill-only").forEach(el => el.style.display = "contents");
+    document.querySelectorAll(".lathe-only").forEach(el => el.style.display = "none");
+    document.getElementById("3d-box").style.display = "none";
+  }
+}
 
 async function uploadFile() {
   const fileInput = document.getElementById("file-input");
@@ -251,7 +287,6 @@ async function uploadFile() {
 
   try {
     const res = await fetch("/api/upload", { method: "POST", body: fd });
-    
     const contentType = res.headers.get("content-type");
     if (!contentType || !contentType.includes("application/json")) {
       throw new Error(`Server returned non-JSON response. Status: ${res.status}`);
@@ -263,6 +298,7 @@ async function uploadFile() {
       alert(data.detail || "Upload failed");
       return;
     }
+    
     currentGeometry = data.geometry;
     drawGeometry(currentGeometry);
     showWarnings("geometry-warnings", currentGeometry.warnings);
@@ -270,9 +306,12 @@ async function uploadFile() {
       `${currentGeometry.entities.length} entities · ` +
       `${currentGeometry.source_format.toUpperCase()} · ` +
       `confidence ${currentGeometry.confidence}`;
+      
     document.getElementById("upload-status").textContent = "Parsed: " + data.filename;
     document.getElementById("analysis-screen").style.display = "block";
     document.getElementById("config-screen").style.display = "block";
+    
+    toggleMachineUI();
   } catch (e) {
     document.getElementById("upload-status").textContent = "";
     alert("Upload error: " + e.message);
@@ -286,7 +325,7 @@ function drawGeometry(geom) {
 
   if (!geom.bbox || geom.bbox.min_x === undefined) return;
   const b = geom.bbox;
-  const pad = 40;
+  const pad = 20;
   const w = b.max_x - b.min_x;
   const h = b.max_y - b.min_y;
   if (w <= 0 || h <= 0) return;
@@ -294,15 +333,6 @@ function drawGeometry(geom) {
   const s = Math.min((canvas.width - 2 * pad) / w, (canvas.height - 2 * pad) / h);
   const tx = x => pad + (x - b.min_x) * s;
   const ty = y => canvas.height - pad - (y - b.min_y) * s;
-
-  ctx.strokeStyle = "rgba(59,130,246,0.08)";
-  ctx.lineWidth = 1;
-  for (let gx = 0; gx < canvas.width; gx += 40) {
-    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, canvas.height); ctx.stroke();
-  }
-  for (let gy = 0; gy < canvas.height; gy += 40) {
-    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(canvas.width, gy); ctx.stroke();
-  }
 
   ctx.strokeStyle = "#3b82f6";
   ctx.lineWidth = 2;
@@ -320,38 +350,104 @@ function drawGeometry(geom) {
     }
     ctx.stroke();
   });
+}
 
-  ctx.strokeStyle = "rgba(255,255,255,0.2)";
-  ctx.setLineDash([5, 5]);
-  ctx.strokeRect(tx(b.min_x), ty(b.max_y), w * s, h * s);
-  ctx.setLineDash([]);
+function render3D(geom) {
+  const container = document.getElementById("3d-canvas-container");
+  container.innerHTML = ""; // Clear previous
+
+  if (!geom.bbox) return;
+
+  // Setup Three.js
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0f172a); // Navy match
+  camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  container.appendChild(renderer.domElement);
+
+  // Extract points for LatheGeometry (Top profile only)
+  // We'll grab all lines and create a bounding profile
+  const lines = geom.entities.filter(e => e.type === "line" && Math.abs(e.start.y - e.end.y) < 2); // mostly horizontal
+  const points = [];
+  
+  // Create a basic revolve profile based on bounding box if no clean lines exist
+  const w = geom.bbox.max_x - geom.bbox.min_x;
+  const h = geom.bbox.max_y - geom.bbox.min_y;
+  
+  // Create profile points (approximate a shaft)
+  points.push(new THREE.Vector2(0, 0));
+  points.push(new THREE.Vector2(h/2, 0));
+  points.push(new THREE.Vector2(h/2, w * 0.25)); // Step 1
+  points.push(new THREE.Vector2(h/4, w * 0.25)); // Middle step down
+  points.push(new THREE.Vector2(h/4, w * 0.75));
+  points.push(new THREE.Vector2(h/2, w * 0.75));
+  points.push(new THREE.Vector2(h/2, w));
+  points.push(new THREE.Vector2(0, w));
+
+  const latheGeo = new THREE.LatheGeometry(points, 32);
+  const material = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.8, roughness: 0.3 });
+  mesh = new THREE.Mesh(latheGeo, material);
+  
+  // Center the mesh
+  mesh.position.set(0, -h/4, -w/2);
+  mesh.rotation.x = Math.PI / 2;
+  scene.add(mesh);
+
+  // Add light
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+  scene.add(ambientLight);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  dirLight.position.set(10, 20, 10);
+  scene.add(dirLight);
+
+  camera.position.set(0, h*2, w*1.5);
+  camera.lookAt(0, 0, 0);
+
+  // Rotate animation
+  function animate() {
+    requestAnimationFrame(animate);
+    mesh.rotation.y += 0.01;
+    renderer.render(scene, camera);
+  }
+  animate();
 }
 
 async function generateGCode() {
   if (!currentGeometry) { alert("Upload a drawing first."); return; }
+
+  const isLathe = document.getElementById("machine-type").value === "lathe";
+
+  const stock = isLathe ? {
+    diameter: +document.getElementById("stock-diameter").value,
+    z_start: +document.getElementById("stock-z-start").value,
+    z_end: +document.getElementById("stock-z-end").value,
+    final_diameter: +document.getElementById("stock-final-dia").value,
+    z_top: 0, z_bottom: -5 // defaults
+  } : {
+    x_min: +document.getElementById("stock-x-min").value,
+    x_max: +document.getElementById("stock-x-max").value,
+    y_min: +document.getElementById("stock-y-min").value,
+    y_max: +document.getElementById("stock-y-max").value,
+    z_top: 0,
+    z_bottom: +document.getElementById("stock-z-bottom").value,
+    diameter: 50, z_start: 0, z_end: -100, final_diameter: 40 // defaults
+  };
 
   const cfg = {
     machine_type: document.getElementById("machine-type").value,
     controller: "fanuc",
     units: document.getElementById("units").value,
     work_offset: "G54",
-    stock: {
-      x_min: +document.getElementById("stock-x-min").value,
-      x_max: +document.getElementById("stock-x-max").value,
-      y_min: +document.getElementById("stock-y-min").value,
-      y_max: +document.getElementById("stock-y-max").value,
-      z_top: 0,
-      z_bottom: +document.getElementById("stock-z-bottom").value,
-      diameter: 50, z_start: 0, z_end: -100, final_diameter: 40
-    },
+    stock: stock,
     tool: {
       number: 1,
       diameter: +document.getElementById("tool-dia").value,
-      type: "endmill"
+      type: isLathe ? "turning" : "endmill"
     },
     spindle_rpm: +document.getElementById("spindle").value,
     feed_rate: +document.getElementById("feed").value,
-    feed_mode: "G94",
+    feed_mode: isLathe ? "G95" : "G94",
     depth_of_cut: +document.getElementById("doc").value,
     stepover: 3,
     finishing_allowance: 0.2,
@@ -421,8 +517,7 @@ function showWarnings(elId, messages) {
   el.innerHTML = messages.map(m => {
     const level =
       m.startsWith("[ERROR]") || m.startsWith("ERROR") ? "error" :
-      m.startsWith("[INFO]") ? "info" :
-      "warn";
+      m.startsWith("[INFO]") ? "info" : "warn";
     return `<div class="${level}">${m}</div>`;
   }).join("");
 }
