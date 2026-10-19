@@ -3,459 +3,295 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>CNC G-Code Generator — FANUC Prototype</title>
+<title>Modern CNC Generator</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
-<!-- Three.js for 3D Preview -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <style>
   :root {
-    --navy: #0f1e3d;
-    --blue: #1e40af;
-    --eng:  #3b82f6;
-    --bg:   #f8fafc;
-    --card: #ffffff;
-    --text: #0f172a;
-    --muted:#64748b;
-    --warn: #f59e0b;
-    --err:  #dc2626;
-    --ok:   #059669;
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --text: #f8fafc;
+    --muted: #94a3b8;
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --border: #334155;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg);
-    color: var(--text);
+    margin: 0; font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex; height: 100vh; overflow: hidden;
   }
-  header {
-    background: var(--navy);
-    color: #fff;
-    padding: 14px 24px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  
+  /* SIDEBAR CONFIG */
+  .sidebar {
+    width: 340px; background: var(--panel); border-right: 1px solid var(--border);
+    padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px;
+    box-shadow: 2px 0 15px rgba(0,0,0,0.2); z-index: 10;
   }
-  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
-  header .badge {
-    background: var(--eng);
-    color: #fff;
-    font-size: 11px;
-    padding: 3px 8px;
-    border-radius: 10px;
-    font-weight: 500;
+  .logo { font-size: 20px; font-weight: 700; letter-spacing: 1px; margin-bottom: 10px; color: #fff; }
+  .logo span { color: var(--accent); }
+  
+  .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  input, select {
+    background: #0f172a; color: #fff; border: 1px solid var(--border);
+    padding: 10px; border-radius: 8px; font-size: 14px; transition: 0.2s;
   }
-  main { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
-  .card {
-    background: var(--card);
-    border-radius: 10px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
+  
+  .file-drop {
+    border: 2px dashed var(--border); border-radius: 8px; padding: 20px;
+    text-align: center; cursor: pointer; transition: 0.2s; font-size: 13px; color: var(--muted);
   }
-  .card h2 {
-    margin: 0 0 14px;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--navy);
-    border-bottom: 2px solid var(--eng);
-    padding-bottom: 8px;
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 12px;
-  }
-  label {
-    display: flex;
-    flex-direction: column;
-    font-size: 12px;
-    color: var(--muted);
-    font-weight: 500;
-    gap: 4px;
-  }
-  input, select, button {
-    font-family: inherit;
-    font-size: 13px;
-    padding: 8px 10px;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    background: #fff;
-    color: var(--text);
-  }
-  input:focus, select:focus {
-    outline: none;
-    border-color: var(--eng);
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
-  }
+  .file-drop:hover { border-color: var(--accent); background: rgba(59,130,246,0.05); }
+  
   button {
-    background: var(--blue);
-    color: #fff;
-    border: none;
-    cursor: pointer;
-    font-weight: 600;
-    padding: 10px 18px;
-    transition: background 0.15s;
+    background: var(--accent); color: #fff; border: none; padding: 12px;
+    border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s;
+    width: 100%; font-size: 14px;
   }
-  button:hover { background: var(--navy); }
-  button.secondary { background: #e2e8f0; color: var(--text); }
-  button.secondary:hover { background: #cbd5e1; }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
   
-  .preview-container { display: flex; gap: 20px; flex-wrap: wrap; }
-  .preview-box { flex: 1; min-width: 300px; }
-  .canvas-wrap {
-    background: #0f172a;
-    border-radius: 8px;
-    overflow: hidden;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 350px;
+  /* MAIN VIEWPORT */
+  .viewport {
+    flex: 1; display: flex; flex-direction: column; position: relative;
   }
-  canvas { max-width: 100%; max-height: 100%; display: block; }
-  
-  .warning-box { margin-top: 12px; }
-  .warn, .error, .ok, .info {
-    font-size: 12px;
-    padding: 8px 12px;
-    border-radius: 6px;
-    margin-bottom: 6px;
-    border-left: 4px solid;
+  .header-bar {
+    padding: 15px 24px; background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;
   }
-  .warn  { background: #fef3c7; border-color: var(--warn); color: #78350f; }
-  .error { background: #fee2e2; border-color: var(--err);  color: #7f1d1d; }
-  .ok    { background: #ecfdf5; border-color: var(--ok);   color: #065f46; }
-  .info  { background: #eff6ff; border-color: var(--blue); color: #1e3a8a; }
-  .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-  .CodeMirror { border: 1px solid #cbd5e1; border-radius: 6px; height: 400px; font-size: 12.5px; }
-  #upload-status { font-size: 12px; color: var(--muted); margin-top: 8px; }
-  .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 10px; }
-  .check { flex-direction: row; align-items: center; color: var(--text); font-size: 13px; }
+  .status-badge { font-size: 12px; padding: 4px 10px; background: var(--border); border-radius: 20px; }
   
-  /* Hide/Show classes for dynamic UI */
-  .mill-only { display: block; }
-  .lathe-only { display: none; }
+  #three-container { flex: 1; position: relative; background: #000; }
+  .canvas-overlay {
+    position: absolute; bottom: 20px; left: 20px; font-size: 12px; color: var(--muted);
+    background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 6px; pointer-events: none;
+  }
+
+  /* CODE EDITOR PANEL */
+  .code-panel {
+    height: 35vh; background: #fff; border-top: 2px solid var(--accent);
+    display: flex; flex-direction: column;
+  }
+  .code-header { background: #1e293b; color: #fff; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; }
+  .CodeMirror { height: calc(35vh - 40px) !important; font-family: monospace; font-size: 13px; }
+  
+  /* Dynamic Classes */
+  .mill-only, .lathe-only { display: none; }
+  .active { display: flex !important; flex-direction: column; }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>CNC G-Code Generator</h1>
-  <span class="badge">FANUC Prototype</span>
-</header>
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="logo">CNC<span>3D</span></div>
+  
+  <div class="form-group">
+    <label>Drawing File (DXF Recommended)</label>
+    <input type="file" id="file-input" accept=".dxf,.png,.jpg,.jpeg" onchange="uploadFile()" />
+  </div>
 
-<main>
-  <section class="card">
-    <h2>1. Upload Drawing</h2>
-    <div class="row">
-      <label style="flex:1;min-width:220px;">Drawing file (Use DXF for best accuracy)
-        <input type="file" id="file-input" accept=".dxf,.svg,.pdf,.png,.jpg,.jpeg" />
-      </label>
-      <label>Raster scale (mm/px)
-        <input type="number" id="scale-input" value="1.0" step="0.01" style="width:120px;" />
-      </label>
-      <button onclick="uploadFile()">Analyse Drawing</button>
-    </div>
-    <p id="upload-status"></p>
-  </section>
+  <div class="form-group">
+    <label>Machine Type</label>
+    <select id="machine-type" onchange="toggleUI()">
+      <option value="lathe">CNC Lathe</option>
+      <option value="mill">CNC Mill</option>
+    </select>
+  </div>
 
-  <section class="card" id="analysis-screen" style="display:none;">
-    <h2>2. Drawing Analysis &amp; 3D Preview</h2>
-    <div class="preview-container">
-      <div class="preview-box">
-        <p style="font-size:12px; margin:0 0 5px 0; color:var(--muted);">2D Extracted Path</p>
-        <div class="canvas-wrap"><canvas id="preview-canvas" width="500" height="350"></canvas></div>
+  <!-- LATHE PARAMS -->
+  <div id="lathe-ui" class="lathe-only active">
+    <div class="form-group"><label>Stock Diameter (mm)</label><input type="number" id="l-dia" value="50" /></div>
+    <div class="form-group"><label>Final Diameter (mm)</label><input type="number" id="l-final" value="30" /></div>
+    <div class="form-group"><label>Z End (mm)</label><input type="number" id="l-zend" value="-150" /></div>
+  </div>
+
+  <!-- MILL PARAMS -->
+  <div id="mill-ui" class="mill-only">
+    <div class="form-group"><label>Stock X (mm)</label><input type="number" id="m-x" value="100" /></div>
+    <div class="form-group"><label>Stock Y (mm)</label><input type="number" id="m-y" value="100" /></div>
+    <div class="form-group"><label>Z Depth (mm)</label><input type="number" id="m-z" value="-5" /></div>
+  </div>
+
+  <div class="form-group">
+    <label>Feed Rate (mm/min)</label>
+    <input type="number" id="feed" value="300" />
+  </div>
+
+  <button id="gen-btn" onclick="generateGCode()" disabled>Generate Toolpath</button>
+</div>
+
+<!-- MAIN VIEWPORT -->
+<div class="viewport">
+  <div class="header-bar">
+    <div style="font-weight: 600;">3D Toolpath Simulation</div>
+    <div class="status-badge" id="status">Waiting for file...</div>
+  </div>
+  
+  <div id="three-container">
+    <div class="canvas-overlay">Left Click: Rotate | Right Click: Pan | Scroll: Zoom</div>
+  </div>
+
+  <div class="code-panel" id="code-panel" style="display:none;">
+    <div class="code-header">
+      <span>Generated FANUC G-Code</span>
+      <div>
+        <button style="width:auto; padding: 6px 12px; font-size:12px;" onclick="copyCode()">Copy Code</button>
       </div>
-      <div class="preview-box" id="3d-box" style="display:none;">
-        <p style="font-size:12px; margin:0 0 5px 0; color:var(--muted);">3D Revolve Preview (Lathe)</p>
-        <div class="canvas-wrap"><div id="3d-canvas-container" style="width:100%; height:100%;"></div></div>
-      </div>
     </div>
-    <p id="geometry-summary" style="font-size:12px;color:var(--muted);margin:10px 0 0;"></p>
-    <div id="geometry-warnings" class="warning-box"></div>
-  </section>
-
-  <section class="card" id="config-screen" style="display:none;">
-    <h2>3. Machining Configuration</h2>
-    <div class="grid">
-      <label>Machine
-        <select id="machine-type" onchange="toggleMachineUI()">
-          <option value="mill">Mill</option>
-          <option value="lathe">Lathe</option>
-        </select>
-      </label>
-      <label>Operation
-        <select id="operation">
-          <option value="contour">2D Contour (Mill)</option>
-          <option value="facing">Facing</option>
-          <option value="pocket">Pocket</option>
-          <option value="drill">Drill</option>
-          <option value="turn_rough">Turn Rough (Lathe)</option>
-          <option value="turn_finish">Turn Finish (Lathe)</option>
-          <option value="groove">Groove (Lathe)</option>
-        </select>
-      </label>
-      <label>Units
-        <select id="units">
-          <option value="mm">Metric (mm)</option>
-          <option value="inch">Imperial (inch)</option>
-        </select>
-      </label>
-      <label>Tool Ø / Nose Radius (mm)
-        <input type="number" id="tool-dia" value="6.0" step="0.1" />
-      </label>
-      <label>Spindle RPM
-        <input type="number" id="spindle" value="3000" />
-      </label>
-      <label>Feed rate
-        <input type="number" id="feed" value="300" step="10" />
-      </label>
-      <label>Depth of cut
-        <input type="number" id="doc" value="2.0" step="0.5" />
-      </label>
-      <label>Safe Z
-        <input type="number" id="safe-z" value="10.0" />
-      </label>
-
-      <!-- MILL STOCK PARAMS -->
-      <div id="mill-stock" class="mill-only" style="display: contents;">
-        <label>Stock X min<input type="number" id="stock-x-min" value="0" /></label>
-        <label>Stock X max<input type="number" id="stock-x-max" value="100" /></label>
-        <label>Stock Y min<input type="number" id="stock-y-min" value="0" /></label>
-        <label>Stock Y max<input type="number" id="stock-y-max" value="60" /></label>
-        <label>Stock Z bottom<input type="number" id="stock-z-bottom" value="-5" /></label>
-      </div>
-
-      <!-- LATHE STOCK PARAMS -->
-      <div id="lathe-stock" class="lathe-only" style="display: contents;">
-        <label>Start Diameter (mm)<input type="number" id="stock-diameter" value="45" /></label>
-        <label>Z Start (mm)<input type="number" id="stock-z-start" value="0" /></label>
-        <label>Z End (mm)<input type="number" id="stock-z-end" value="-170" /></label>
-        <label>Final Diameter (mm)<input type="number" id="stock-final-dia" value="30" /></label>
-      </div>
-
-      <label class="check">
-        <input type="checkbox" id="coolant" checked /> Coolant
-      </label>
-    </div>
-    <div class="actions">
-      <button onclick="generateGCode()">Generate G-Code</button>
-    </div>
-  </section>
-
-  <section class="card" id="gcode-screen" style="display:none;">
-    <h2>4. G-Code Editor &amp; Validation</h2>
-    <textarea id="gcode-editor" style="display:none;"></textarea>
-    <div id="validation-report" class="warning-box"></div>
-    <div class="actions">
-      <button onclick="downloadGCode()">Download .nc</button>
-      <button class="secondary" onclick="copyGCode()">Copy to Clipboard</button>
-    </div>
-  </section>
-</main>
+    <textarea id="gcode-textarea"></textarea>
+  </div>
+</div>
 
 <script>
+let scene, camera, renderer, controls;
 let currentGeometry = null;
 let cmInstance = null;
-let scene, camera, renderer, mesh;
 
-function toggleMachineUI() {
-  const type = document.getElementById("machine-type").value;
-  if (type === "lathe") {
-    document.querySelectorAll(".mill-only").forEach(el => el.style.display = "none");
-    document.querySelectorAll(".lathe-only").forEach(el => el.style.display = "contents");
-    document.getElementById("3d-box").style.display = "block";
-    if (currentGeometry) render3D(currentGeometry);
-  } else {
-    document.querySelectorAll(".mill-only").forEach(el => el.style.display = "contents");
-    document.querySelectorAll(".lathe-only").forEach(el => el.style.display = "none");
-    document.getElementById("3d-box").style.display = "none";
-  }
-}
-
-async function uploadFile() {
-  const fileInput = document.getElementById("file-input");
-  const file = fileInput.files[0];
-  if (!file) { alert("Choose a drawing file first."); return; }
-
-  const fd = new FormData();
-  fd.append("file", file);
-  fd.append("scale_mm_per_px", document.getElementById("scale-input").value);
-
-  document.getElementById("upload-status").textContent = "Uploading & parsing…";
-
-  try {
-    const res = await fetch("/api/upload", { method: "POST", body: fd });
-    const contentType = res.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
-      throw new Error(`Server returned non-JSON response. Status: ${res.status}`);
-    }
-    
-    const data = await res.json();
-    if (!res.ok) {
-      document.getElementById("upload-status").textContent = "";
-      alert(data.detail || "Upload failed");
-      return;
-    }
-    
-    currentGeometry = data.geometry;
-    drawGeometry(currentGeometry);
-    showWarnings("geometry-warnings", currentGeometry.warnings);
-    document.getElementById("geometry-summary").textContent =
-      `${currentGeometry.entities.length} entities · ` +
-      `${currentGeometry.source_format.toUpperCase()} · ` +
-      `confidence ${currentGeometry.confidence}`;
-      
-    document.getElementById("upload-status").textContent = "Parsed: " + data.filename;
-    document.getElementById("analysis-screen").style.display = "block";
-    document.getElementById("config-screen").style.display = "block";
-    
-    toggleMachineUI();
-  } catch (e) {
-    document.getElementById("upload-status").textContent = "";
-    alert("Upload error: " + e.message);
-  }
-}
-
-function drawGeometry(geom) {
-  const canvas = document.getElementById("preview-canvas");
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (!geom.bbox || geom.bbox.min_x === undefined) return;
-  const b = geom.bbox;
-  const pad = 20;
-  const w = b.max_x - b.min_x;
-  const h = b.max_y - b.min_y;
-  if (w <= 0 || h <= 0) return;
-
-  const s = Math.min((canvas.width - 2 * pad) / w, (canvas.height - 2 * pad) / h);
-  const tx = x => pad + (x - b.min_x) * s;
-  const ty = y => canvas.height - pad - (y - b.min_y) * s;
-
-  ctx.strokeStyle = "#3b82f6";
-  ctx.lineWidth = 2;
-  geom.entities.forEach(e => {
-    ctx.beginPath();
-    if (e.type === "line") {
-      ctx.moveTo(tx(e.start.x), ty(e.start.y));
-      ctx.lineTo(tx(e.end.x), ty(e.end.y));
-    } else if (e.type === "circle") {
-      ctx.arc(tx(e.center.x), ty(e.center.y), e.radius * s, 0, 2 * Math.PI);
-    } else if (e.type === "arc") {
-      const start = -e.end_angle * Math.PI / 180;
-      const end = -e.start_angle * Math.PI / 180;
-      ctx.arc(tx(e.center.x), ty(e.center.y), e.radius * s, start, end, !e.clockwise);
-    }
-    ctx.stroke();
-  });
-}
-
-function render3D(geom) {
-  const container = document.getElementById("3d-canvas-container");
-  container.innerHTML = ""; // Clear previous
-
-  if (!geom.bbox) return;
-
-  // Setup Three.js
+// Initialize Three.js
+function initThree() {
+  const container = document.getElementById('three-container');
+  
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0f172a); // Navy match
-  camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  scene.fog = new THREE.FogExp2(0x0f172a, 0.005);
+
+  camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 2000);
+  camera.position.set(150, 150, 200);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
   container.appendChild(renderer.domElement);
 
-  // Extract points for LatheGeometry (Top profile only)
-  // We'll grab all lines and create a bounding profile
-  const lines = geom.entities.filter(e => e.type === "line" && Math.abs(e.start.y - e.end.y) < 2); // mostly horizontal
-  const points = [];
-  
-  // Create a basic revolve profile based on bounding box if no clean lines exist
-  const w = geom.bbox.max_x - geom.bbox.min_x;
-  const h = geom.bbox.max_y - geom.bbox.min_y;
-  
-  // Create profile points (approximate a shaft)
-  points.push(new THREE.Vector2(0, 0));
-  points.push(new THREE.Vector2(h/2, 0));
-  points.push(new THREE.Vector2(h/2, w * 0.25)); // Step 1
-  points.push(new THREE.Vector2(h/4, w * 0.25)); // Middle step down
-  points.push(new THREE.Vector2(h/4, w * 0.75));
-  points.push(new THREE.Vector2(h/2, w * 0.75));
-  points.push(new THREE.Vector2(h/2, w));
-  points.push(new THREE.Vector2(0, w));
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
 
-  const latheGeo = new THREE.LatheGeometry(points, 32);
-  const material = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.8, roughness: 0.3 });
-  mesh = new THREE.Mesh(latheGeo, material);
+  // Lighting
+  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  scene.add(ambient);
   
-  // Center the mesh
-  mesh.position.set(0, -h/4, -w/2);
-  mesh.rotation.x = Math.PI / 2;
-  scene.add(mesh);
-
-  // Add light
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-  scene.add(ambientLight);
   const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  dirLight.position.set(10, 20, 10);
+  dirLight.position.set(100, 200, 100);
   scene.add(dirLight);
 
-  camera.position.set(0, h*2, w*1.5);
-  camera.lookAt(0, 0, 0);
+  // Grid
+  const gridHelper = new THREE.GridHelper(400, 40, 0x334155, 0x1e293b);
+  scene.add(gridHelper);
+  
+  // Axes
+  const axesHelper = new THREE.AxesHelper(50);
+  scene.add(axesHelper);
 
-  // Rotate animation
-  function animate() {
-    requestAnimationFrame(animate);
-    mesh.rotation.y += 0.01;
-    renderer.render(scene, camera);
-  }
   animate();
 }
 
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// Handle UI Toggle
+function toggleUI() {
+  const type = document.getElementById('machine-type').value;
+  document.getElementById('lathe-ui').classList.toggle('active', type === 'lathe');
+  document.getElementById('mill-ui').classList.toggle('active', type === 'mill');
+  drawStock();
+}
+
+// Draw Stock Material
+function drawStock() {
+  if (!scene) return;
+  
+  // Clear existing stock/toolpaths
+  const toRemove = [];
+  scene.children.forEach(child => {
+    if (child.name === 'stock' || child.name === 'toolpath') toRemove.push(child);
+  });
+  toRemove.forEach(child => scene.remove(child));
+
+  const type = document.getElementById('machine-type').value;
+  const material = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8, roughness: 0.4, transparent: true, opacity: 0.8 });
+
+  if (type === 'lathe') {
+    const dia = parseFloat(document.getElementById('l-dia').value);
+    const zlen = Math.abs(parseFloat(document.getElementById('l-zend').value));
+    
+    const geo = new THREE.CylinderGeometry(dia/2, dia/2, zlen, 64);
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.name = 'stock';
+    mesh.rotation.x = Math.PI / 2;
+    mesh.position.z = -zlen / 2;
+    scene.add(mesh);
+  } else {
+    const x = parseFloat(document.getElementById('m-x').value);
+    const y = parseFloat(document.getElementById('m-y').value);
+    const z = Math.abs(parseFloat(document.getElementById('m-z').value));
+    
+    const geo = new THREE.BoxGeometry(x, z, y);
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.name = 'stock';
+    mesh.position.y = -z / 2;
+    scene.add(mesh);
+  }
+}
+
+// File Upload
+async function uploadFile() {
+  const file = document.getElementById('file-input').files[0];
+  if (!file) return;
+
+  document.getElementById('status').textContent = "Parsing geometry...";
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("scale", "1.0");
+
+  try {
+    const res = await fetch("/api/upload", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Upload failed");
+    
+    currentGeometry = data.geometry;
+    document.getElementById('status').textContent = `Loaded: ${data.filename} (${currentGeometry.entities.length} paths)`;
+    document.getElementById('gen-btn').disabled = false;
+    drawStock();
+  } catch (e) {
+    document.getElementById('status').textContent = "Error";
+    alert(e.message);
+  }
+}
+
+// Generate G-Code
 async function generateGCode() {
-  if (!currentGeometry) { alert("Upload a drawing first."); return; }
-
-  const isLathe = document.getElementById("machine-type").value === "lathe";
-
-  const stock = isLathe ? {
-    diameter: +document.getElementById("stock-diameter").value,
-    z_start: +document.getElementById("stock-z-start").value,
-    z_end: +document.getElementById("stock-z-end").value,
-    final_diameter: +document.getElementById("stock-final-dia").value,
-    z_top: 0, z_bottom: -5 // defaults
-  } : {
-    x_min: +document.getElementById("stock-x-min").value,
-    x_max: +document.getElementById("stock-x-max").value,
-    y_min: +document.getElementById("stock-y-min").value,
-    y_max: +document.getElementById("stock-y-max").value,
-    z_top: 0,
-    z_bottom: +document.getElementById("stock-z-bottom").value,
-    diameter: 50, z_start: 0, z_end: -100, final_diameter: 40 // defaults
-  };
-
+  document.getElementById('status').textContent = "Generating toolpath...";
+  const type = document.getElementById('machine-type').value;
+  
   const cfg = {
-    machine_type: document.getElementById("machine-type").value,
+    machine_type: type,
     controller: "fanuc",
-    units: document.getElementById("units").value,
-    work_offset: "G54",
-    stock: stock,
-    tool: {
-      number: 1,
-      diameter: +document.getElementById("tool-dia").value,
-      type: isLathe ? "turning" : "endmill"
-    },
-    spindle_rpm: +document.getElementById("spindle").value,
-    feed_rate: +document.getElementById("feed").value,
-    feed_mode: isLathe ? "G95" : "G94",
-    depth_of_cut: +document.getElementById("doc").value,
-    stepover: 3,
-    finishing_allowance: 0.2,
-    safe_z: +document.getElementById("safe-z").value,
-    retract_z: 5,
-    coolant: document.getElementById("coolant").checked,
-    operation: document.getElementById("operation").value,
-    operation_params: {}
+    units: "mm",
+    tool: { number: 1, diameter: 6.0 },
+    spindle_rpm: 3000,
+    feed_rate: parseFloat(document.getElementById('feed').value),
+    depth_of_cut: 2.0,
+    safe_z: 50.0,
+    coolant: true,
+    operation: type === 'lathe' ? 'turn_rough' : 'pocket',
+    stock: type === 'lathe' ? {
+      diameter: parseFloat(document.getElementById('l-dia').value),
+      final_diameter: parseFloat(document.getElementById('l-final').value),
+      z_end: parseFloat(document.getElementById('l-zend').value)
+    } : {
+      x_max: parseFloat(document.getElementById('m-x').value),
+      y_max: parseFloat(document.getElementById('m-y').value),
+      z_bottom: parseFloat(document.getElementById('m-z').value)
+    }
   };
 
   try {
@@ -465,77 +301,62 @@ async function generateGCode() {
       body: JSON.stringify({ geometry: currentGeometry, config: cfg })
     });
     
-    const contentType = res.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
-      throw new Error(`Server returned non-JSON response. Status: ${res.status}`);
-    }
-    
     const data = await res.json();
-    if (!res.ok) {
-      alert(data.detail || "Generation failed");
-      return;
-    }
-
-    setEditorContent(data.gcode);
-    showWarnings("validation-report",
-      data.issues.map(i => `[${i.level.toUpperCase()}] ${i.message}`));
-    document.getElementById("gcode-screen").style.display = "block";
-    document.getElementById("gcode-screen").scrollIntoView({ behavior: "smooth" });
+    if (!res.ok) throw new Error(data.detail || "Generation failed");
+    
+    document.getElementById('status').textContent = "Toolpath Generated";
+    document.getElementById('code-panel').style.display = 'flex';
+    setCode(data.gcode);
+    drawToolpath(data.toolpath);
+    
   } catch (e) {
-    alert("Generate error: " + e.message);
+    document.getElementById('status').textContent = "Error";
+    alert(e.message);
   }
 }
 
-function setEditorContent(text) {
-  if (typeof CodeMirror === "undefined") {
-    const ta = document.getElementById("gcode-editor");
-    ta.value = text;
-    ta.style.display = "block";
-    ta.style.height = "400px";
-    return;
-  }
+// Draw Toolpath in 3D
+function drawToolpath(coords) {
+  if (!scene || !coords || coords.length < 2) return;
+  
+  const points = coords.map(p => new THREE.Vector3(p[0], p[1], p[2]));
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  
+  const material = new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 3 });
+  const line = new THREE.Line(geometry, material);
+  line.name = 'toolpath';
+  scene.add(line);
+}
+
+// CodeMirror Setup
+function setCode(code) {
   if (!cmInstance) {
-    cmInstance = CodeMirror.fromTextArea(
-      document.getElementById("gcode-editor"),
-      { lineNumbers: true, readOnly: false, mode: "text/plain" }
-    );
+    cmInstance = CodeMirror.fromTextArea(document.getElementById('gcode-textarea'), {
+      lineNumbers: true, readOnly: false, theme: "default"
+    });
   }
-  cmInstance.setValue(text);
+  cmInstance.setValue(code);
 }
 
-function getEditorContent() {
-  if (cmInstance) return cmInstance.getValue();
-  return document.getElementById("gcode-editor").value;
+function copyCode() {
+  const code = cmInstance ? cmInstance.getValue() : document.getElementById('gcode-textarea').value;
+  navigator.clipboard.writeText(code);
+  alert("G-Code Copied!");
 }
 
-function showWarnings(elId, messages) {
-  const el = document.getElementById(elId);
-  if (!messages || !messages.length) {
-    el.innerHTML = "<div class='ok'>No warnings.</div>";
-    return;
+// Window Resize Handler
+window.addEventListener('resize', () => {
+  const container = document.getElementById('three-container');
+  if (renderer && camera) {
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(container.clientWidth, container.clientHeight);
   }
-  el.innerHTML = messages.map(m => {
-    const level =
-      m.startsWith("[ERROR]") || m.startsWith("ERROR") ? "error" :
-      m.startsWith("[INFO]") ? "info" : "warn";
-    return `<div class="${level}">${m}</div>`;
-  }).join("");
-}
+});
 
-function downloadGCode() {
-  const blob = new Blob([getEditorContent()], { type: "text/plain" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "program.nc";
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-function copyGCode() {
-  navigator.clipboard.writeText(getEditorContent())
-    .then(() => alert("G-code copied to clipboard."))
-    .catch(() => alert("Copy failed — select the text manually."));
-}
+// Init
+initThree();
+toggleUI();
 </script>
 </body>
 </html>
