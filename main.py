@@ -68,7 +68,12 @@ class GenerateRequest(BaseModel):
 # ============================================================
 def _bbox_from_points(points):
     xs, ys = zip(*points)
-    return {"min_x": min(xs), "min_y": min(ys), "max_x": max(xs), "max_y": max(ys)}
+    return {
+        "min_x": float(min(xs)),
+        "min_y": float(min(ys)),
+        "max_x": float(max(xs)),
+        "max_y": float(max(ys))
+    }
 
 def parse_dxf(path: str) -> Dict[str, Any]:
     doc = ezdxf.readfile(path)
@@ -78,27 +83,27 @@ def parse_dxf(path: str) -> Dict[str, Any]:
         t = e.dxftype()
         if t == "LINE":
             s, en = e.dxf.start, e.dxf.end
-            entities.append({"type": "line", "start": {"x": s.x, "y": s.y}, "end": {"x": en.x, "y": en.y}})
-            points.extend([(s.x, s.y), (en.x, en.y)])
+            entities.append({"type": "line", "start": {"x": float(s.x), "y": float(s.y)}, "end": {"x": float(en.x), "y": float(en.y)}})
+            points.extend([(float(s.x), float(s.y)), (float(en.x), float(en.y))])
         elif t == "CIRCLE":
             c, r = e.dxf.center, e.dxf.radius
-            entities.append({"type": "circle", "center": {"x": c.x, "y": c.y}, "radius": r})
-            points.extend([(c.x - r, c.y - r), (c.x + r, c.y + r)])
+            entities.append({"type": "circle", "center": {"x": float(c.x), "y": float(c.y)}, "radius": float(r)})
+            points.extend([(float(c.x) - float(r), float(c.y) - float(r)), (float(c.x) + float(r), float(c.y) + float(r))])
         elif t == "ARC":
             c, r = e.dxf.center, e.dxf.radius
-            entities.append({"type": "arc", "center": {"x": c.x, "y": c.y}, "radius": r,
-                             "start_angle": e.dxf.start_angle,
-                             "end_angle": e.dxf.end_angle, "clockwise": False})
-            points.extend([(c.x - r, c.y - r), (c.x + r, c.y + r)])
+            entities.append({"type": "arc", "center": {"x": float(c.x), "y": float(c.y)}, "radius": float(r),
+                             "start_angle": float(e.dxf.start_angle),
+                             "end_angle": float(e.dxf.end_angle), "clockwise": False})
+            points.extend([(float(c.x) - float(r), float(c.y) - float(r)), (float(c.x) + float(r), float(c.y) + float(r))])
         elif t == "LWPOLYLINE":
-            pts = [(p[0], p[1]) for p in e.get_points()]
+            pts = [(float(p[0]), float(p[1])) for p in e.get_points()]
             for i in range(len(pts) - 1):
                 entities.append({"type": "line",
                                  "start": {"x": pts[i][0], "y": pts[i][1]},
                                  "end": {"x": pts[i + 1][0], "y": pts[i + 1][1]}})
             points.extend(pts)
         elif t == "POLYLINE":
-            pts = [(v.dxf.location.x, v.dxf.location.y) for v in e.vertices]
+            pts = [(float(v.dxf.location.x), float(v.dxf.location.y)) for v in e.vertices]
             for i in range(len(pts) - 1):
                 entities.append({"type": "line",
                                  "start": {"x": pts[i][0], "y": pts[i][1]},
@@ -116,29 +121,29 @@ def parse_svg(path: str) -> Dict[str, Any]:
         for seg in path_obj:
             if isinstance(seg, Line):
                 entities.append({"type": "line",
-                                 "start": {"x": seg.start.real, "y": seg.start.imag},
-                                 "end": {"x": seg.end.real, "y": seg.end.imag}})
-                points.extend([(seg.start.real, seg.start.imag),
-                               (seg.end.real, seg.end.imag)])
+                                 "start": {"x": float(seg.start.real), "y": float(seg.start.imag)},
+                                 "end": {"x": float(seg.end.real), "y": float(seg.end.imag)}})
+                points.extend([(float(seg.start.real), float(seg.start.imag)),
+                               (float(seg.end.real), float(seg.end.imag))])
             elif isinstance(seg, (CubicBezier, QuadraticBezier)):
                 n = 20
                 prev = seg.point(0)
                 for t in np.linspace(0, 1, n)[1:]:
                     cur = seg.point(t)
                     entities.append({"type": "line",
-                                     "start": {"x": prev.real, "y": prev.imag},
-                                     "end": {"x": cur.real, "y": cur.imag}})
-                    points.extend([(prev.real, prev.imag), (cur.real, cur.imag)])
+                                     "start": {"x": float(prev.real), "y": float(prev.imag)},
+                                     "end": {"x": float(cur.real), "y": float(cur.imag)}})
+                    points.extend([(float(prev.real), float(prev.imag)), (float(cur.real), float(cur.imag))])
                     prev = cur
             elif isinstance(seg, Arc):
                 entities.append({"type": "arc",
-                                 "center": {"x": seg.center.real, "y": seg.center.imag},
-                                 "radius": seg.radius,
+                                 "center": {"x": float(seg.center.real), "y": float(seg.center.imag)},
+                                 "radius": float(seg.radius),
                                  "start_angle": float(np.degrees(seg.theta)),
                                  "end_angle": float(np.degrees(seg.theta + seg.delta)),
                                  "clockwise": bool(seg.delta < 0)})
-                points.extend([(seg.center.real - seg.radius, seg.center.imag - seg.radius),
-                               (seg.center.real + seg.radius, seg.center.imag + seg.radius)])
+                points.extend([(float(seg.center.real) - float(seg.radius), float(seg.center.imag) - float(seg.radius)),
+                               (float(seg.center.real) + float(seg.radius), float(seg.center.imag) + float(seg.radius))])
     return {"units": "mm", "entities": entities,
             "bbox": _bbox_from_points(points) if points else {},
             "source_format": "svg", "confidence": 1.0,
@@ -153,17 +158,17 @@ def parse_pdf_vector(path: str) -> Dict[str, Any]:
                 if item[0] == "l":
                     p1, p2 = item[1], item[2]
                     entities.append({"type": "line",
-                                     "start": {"x": p1.x, "y": p1.y},
-                                     "end": {"x": p2.x, "y": p2.y}})
-                    points.extend([(p1.x, p1.y), (p2.x, p2.y)])
+                                     "start": {"x": float(p1.x), "y": float(p1.y)},
+                                     "end": {"x": float(p2.x), "y": float(p2.y)}})
+                    points.extend([(float(p1.x), float(p1.y)), (float(p2.x), float(p2.y))])
                 elif item[0] == "c":
                     pts = item[1:]
                     prev = pts[0]
                     for cur in pts[1:]:
                         entities.append({"type": "line",
-                                         "start": {"x": prev.x, "y": prev.y},
-                                         "end": {"x": cur.x, "y": cur.y}})
-                        points.extend([(prev.x, prev.y), (cur.x, cur.y)])
+                                         "start": {"x": float(prev.x), "y": float(prev.y)},
+                                         "end": {"x": float(cur.x), "y": float(cur.y)}})
+                        points.extend([(float(prev.x), float(prev.y)), (float(cur.x), float(cur.y))])
                         prev = cur
     doc.close()
     if not points:
@@ -184,26 +189,35 @@ def parse_raster(path: str, scale_mm_per_px: float = 1.0) -> Dict[str, Any]:
         lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=60,
                                 minLineLength=30, maxLineGap=10)
         entities, points = [], []
+        
         if lines is not None:
             for l in lines:
                 x1, y1, x2, y2 = l[0]
+                # Force conversion to native Python float
+                sx1 = float(x1 * scale_mm_per_px)
+                sy1 = float(y1 * scale_mm_per_px)
+                sx2 = float(x2 * scale_mm_per_px)
+                sy2 = float(y2 * scale_mm_per_px)
+                
                 entities.append({"type": "line",
-                                 "start": {"x": float(x1 * scale_mm_per_px),
-                                           "y": float(y1 * scale_mm_per_px)},
-                                 "end": {"x": float(x2 * scale_mm_per_px),
-                                         "y": float(y2 * scale_mm_per_px)}})
-                points.extend([(x1 * scale_mm_per_px, y1 * scale_mm_per_px),
-                               (x2 * scale_mm_per_px, y2 * scale_mm_per_px)])
+                                 "start": {"x": sx1, "y": sy1},
+                                 "end": {"x": sx2, "y": sy2}})
+                points.extend([(sx1, sy1), (sx2, sy2)])
+                
         circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=20,
                                    param1=50, param2=30, minRadius=5, maxRadius=200)
         if circles is not None:
             for c in circles[0]:
-                cx, cy, r = c
+                cx, cy, r = float(c[0]), float(c[1]), float(c[2])
+                scx = cx * scale_mm_per_px
+                scy = cy * scale_mm_per_px
+                sr = r * scale_mm_per_px
+                
                 entities.append({"type": "circle",
-                                 "center": {"x": float(cx * scale_mm_per_px),
-                                            "y": float(cy * scale_mm_per_px)},
-                                 "radius": float(r * scale_mm_per_px)})
-                points.extend([(cx - r, cy - r), (cx + r, cy + r)])
+                                 "center": {"x": scx, "y": scy},
+                                 "radius": sr})
+                points.extend([(scx - sr, scy - sr), (scx + sr, scy + sr)])
+                
         return {"units": "mm", "entities": entities,
                 "bbox": _bbox_from_points(points) if points else {},
                 "source_format": "raster",
@@ -528,10 +542,9 @@ app.add_middleware(
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 
-# Global Exception Handler (Fixes the "Internal Server Error" JSON crash)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    traceback.print_exc()  # Prints the full error to Render logs
+    traceback.print_exc()
     return JSONResponse(
         status_code=500,
         content={"detail": f"Server Error: {str(exc)}"}
@@ -555,8 +568,6 @@ async def upload_drawing(file: UploadFile = File(...),
     
     save_path = UPLOAD_DIR / f"{uuid.uuid4().hex}{ext}"
     save_path.write_bytes(await file.read())
-    
-    print(f"File saved to: {save_path}")  # Good for debugging
     
     try:
         geom = extract_geometry(str(save_path), ext, scale_mm_per_px)
@@ -583,7 +594,6 @@ async def generate_gcode(req: GenerateRequest):
     issues = validate_gcode(gcode, cfg)
     return {"gcode": gcode, "issues": issues, "line_count": len(gcode.splitlines())}
 
-# Serve index.html
 @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
 async def index():
     candidate = HERE / "index.html"
