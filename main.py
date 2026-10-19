@@ -1,26 +1,17 @@
 """
-CNC G-Code Generator — Backend (single-file, Vercel-ready).
-
-Local run:
-    pip install -r requirements.txt
-    uvicorn main:app --reload --port 8000
-
-Vercel:
-    Vercel routes every request to this FastAPI app.
-    `/`             → FileResponse serves index.html (same folder)
-    `/api/upload`   → geometry parser
-    `/api/generate` → toolpath + G-code generator
+CNC G-Code Generator — Backend (single-file, Render-ready).
 """
 
 import os
 import uuid
 import tempfile
+import traceback
 from pathlib import Path
 from typing import List, Dict, Any, Literal
 
 import numpy as np
 from pydantic import BaseModel
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -29,7 +20,7 @@ try:
     import ezdxf
     from svgpathtools import svg2paths, Line, CubicBezier, QuadraticBezier, Arc
     import cv2
-    import fitz  # PyMuPDF
+    import pymupdf as fitz  # Modern PyMuPDF import
 except ImportError as e:
     raise RuntimeError(
         f"Missing dependency: {e.name}. Run: pip install -r requirements.txt"
@@ -184,39 +175,43 @@ def parse_pdf_vector(path: str) -> Dict[str, Any]:
             "source_format": "pdf_vector", "confidence": 1.0, "warnings": []}
 
 def parse_raster(path: str, scale_mm_per_px: float = 1.0) -> Dict[str, Any]:
-    img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        raise ValueError("Cannot read image")
-    edges = cv2.Canny(img, 50, 150, apertureSize=3)
-    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=60,
-                            minLineLength=30, maxLineGap=10)
-    entities, points = [], []
-    if lines is not None:
-        for l in lines:
-            x1, y1, x2, y2 = l[0]
-            entities.append({"type": "line",
-                             "start": {"x": float(x1 * scale_mm_per_px),
-                                       "y": float(y1 * scale_mm_per_px)},
-                             "end": {"x": float(x2 * scale_mm_per_px),
-                                     "y": float(y2 * scale_mm_per_px)}})
-            points.extend([(x1 * scale_mm_per_px, y1 * scale_mm_per_px),
-                           (x2 * scale_mm_per_px, y2 * scale_mm_per_px)])
-    circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=20,
-                               param1=50, param2=30, minRadius=5, maxRadius=200)
-    if circles is not None:
-        for c in circles[0]:
-            cx, cy, r = c
-            entities.append({"type": "circle",
-                             "center": {"x": float(cx * scale_mm_per_px),
-                                        "y": float(cy * scale_mm_per_px)},
-                             "radius": float(r * scale_mm_per_px)})
-            points.extend([(cx - r, cy - r), (cx + r, cy + r)])
-    return {"units": "mm", "entities": entities,
-            "bbox": _bbox_from_points(points) if points else {},
-            "source_format": "raster",
-            "confidence": 0.3 if points else 0.0,
-            "warnings": ["Raster extraction is approximate. Manual correction is mandatory."]
-                        if points else ["No geometry detected."]}
+    try:
+        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise ValueError("OpenCV could not read the image. It may be corrupt or an unsupported format.")
+            
+        edges = cv2.Canny(img, 50, 150, apertureSize=3)
+        lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=60,
+                                minLineLength=30, maxLineGap=10)
+        entities, points = [], []
+        if lines is not None:
+            for l in lines:
+                x1, y1, x2, y2 = l[0]
+                entities.append({"type": "line",
+                                 "start": {"x": float(x1 * scale_mm_per_px),
+                                           "y": float(y1 * scale_mm_per_px)},
+                                 "end": {"x": float(x2 * scale_mm_per_px),
+                                         "y": float(y2 * scale_mm_per_px)}})
+                points.extend([(x1 * scale_mm_per_px, y1 * scale_mm_per_px),
+                               (x2 * scale_mm_per_px, y2 * scale_mm_per_px)])
+        circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=20,
+                                   param1=50, param2=30, minRadius=5, maxRadius=200)
+        if circles is not None:
+            for c in circles[0]:
+                cx, cy, r = c
+                entities.append({"type": "circle",
+                                 "center": {"x": float(cx * scale_mm_per_px),
+                                            "y": float(cy * scale_mm_per_px)},
+                                 "radius": float(r * scale_mm_per_px)})
+                points.extend([(cx - r, cy - r), (cx + r, cy + r)])
+        return {"units": "mm", "entities": entities,
+                "bbox": _bbox_from_points(points) if points else {},
+                "source_format": "raster",
+                "confidence": 0.3 if points else 0.0,
+                "warnings": ["Raster extraction is approximate. Manual correction is mandatory."]
+                            if points else ["No geometry detected."]}
+    except Exception as e:
+        raise ValueError(f"Raster parsing failed: {str(e)}")
 
 def extract_geometry(path: str, ext: str, scale_mm_per_px: float = 1.0) -> Dict[str, Any]:
     ext = ext.lower()
@@ -533,11 +528,20 @@ app.add_middleware(
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 
+# Global Exception Handler (Fixes the "Internal Server Error" JSON crash)
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    traceback.print_exc()  # Prints the full error to Render logs
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Server Error: {str(exc)}"}
+    )
+
 HERE = Path(__file__).resolve().parent
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "cnc_uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok"}
 
@@ -548,12 +552,17 @@ async def upload_drawing(file: UploadFile = File(...),
     allowed = {".dxf", ".svg", ".pdf", ".png", ".jpg", ".jpeg"}
     if ext not in allowed:
         raise HTTPException(400, f"Unsupported format: {ext}. Allowed: {sorted(allowed)}")
+    
     save_path = UPLOAD_DIR / f"{uuid.uuid4().hex}{ext}"
     save_path.write_bytes(await file.read())
+    
+    print(f"File saved to: {save_path}")  # Good for debugging
+    
     try:
         geom = extract_geometry(str(save_path), ext, scale_mm_per_px)
     except Exception as e:
         raise HTTPException(422, f"Geometry extraction failed: {e}")
+        
     geom["warnings"] = validate_geometry(geom) + geom.get("warnings", [])
     return {"geometry": geom, "filename": file.filename, "format": ext}
 
@@ -574,8 +583,8 @@ async def generate_gcode(req: GenerateRequest):
     issues = validate_gcode(gcode, cfg)
     return {"gcode": gcode, "issues": issues, "line_count": len(gcode.splitlines())}
 
-# ---- Serve index.html (root of project — no public/ folder) ----
-@app.get("/", include_in_schema=False)
+# Serve index.html
+@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
 async def index():
     candidate = HERE / "index.html"
     if candidate.exists():
