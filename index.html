@@ -252,7 +252,6 @@ async function uploadFile() {
   try {
     const res = await fetch("/api/upload", { method: "POST", body: fd });
     
-    // Safety check for non-JSON responses
     const contentType = res.headers.get("content-type");
     if (!contentType || !contentType.includes("application/json")) {
       throw new Error(`Server returned non-JSON response. Status: ${res.status}`);
