@@ -17,7 +17,6 @@ from main import (
     parse_dxf,
 )
 
-# ---------- helpers ----------
 def base_geom():
     return {
         "units": "mm",
@@ -58,7 +57,6 @@ def base_cfg():
         "max_rpm": 12000.0,
     }
 
-# ---------- geometry ----------
 def test_bbox():
     pts = [(0, 0), (10, 0), (10, 5), (0, 5)]
     assert _bbox_from_points(pts) == {"min_x": 0, "min_y": 0, "max_x": 10, "max_y": 5}
@@ -70,7 +68,6 @@ def test_validate_geometry_empty():
     issues = validate_geometry({"entities": [], "bbox": {}, "confidence": 1.0})
     assert any("ERROR" in w for w in issues)
 
-# ---------- toolpath ----------
 def test_mill_facing_generates_feed_moves():
     tp = MillPathGenerator(base_geom(), base_cfg()).generate()
     assert len(tp.moves) > 0
@@ -96,7 +93,6 @@ def test_lathe_facing_generates_moves():
     tp = LathePathGenerator(base_geom(), cfg).generate()
     assert any(m["type"] == "feed" for m in tp.moves)
 
-# ---------- postprocessor ----------
 def test_postprocessor_header_footer():
     tp = MillPathGenerator(base_geom(), base_cfg()).generate()
     code = FanucPostProcessor(base_cfg()).generate(tp)
@@ -113,7 +109,6 @@ def test_postprocessor_includes_g81_for_drill():
     assert "G81" in code
     assert "G80" in code
 
-# ---------- validation ----------
 def test_validation_metric_inch_mismatch():
     gcode = "G20 G01 X10 F100\nM30"
     issues = validate_gcode(gcode, base_cfg())
@@ -131,7 +126,6 @@ def test_validation_flags_missing_safe_end():
     issues = validate_gcode(gcode, base_cfg())
     assert any("M30" in i["message"] for i in issues)
 
-# ---------- DXF roundtrip ----------
 def test_dxf_parser_roundtrip():
     import ezdxf
     tmp = tempfile.NamedTemporaryFile(suffix=".dxf", delete=False)
@@ -150,7 +144,6 @@ def test_dxf_parser_roundtrip():
     finally:
         os.unlink(tmp.name)
 
-# ---------- manual runner ----------
 if __name__ == "__main__":
     tests = [
         test_bbox,
