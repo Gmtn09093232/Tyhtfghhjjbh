@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CNC G-Code Generator — FANUC Prototype</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<style>
+  :root {
+    --navy: #0f1e3d;
+    --blue: #1e40af;
+    --eng:  #3b82f6;
+    --bg:   #f8fafc;
+    --card: #ffffff;
+    --text: #0f172a;
+    --muted:#64748b;
+    --warn: #f59e0b;
+    --err:  #dc2626;
+    --ok:   #059669;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    background: var(--navy);
+    color: #fff;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .badge {
+    background: var(--eng);
+    color: #fff;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+  }
+  main { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+  .card {
+    background: var(--card);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .card h2 {
+    margin: 0 0 14px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--navy);
+    border-bottom: 2px solid var(--eng);
+    padding-bottom: 8px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  label {
+    display: flex;
+    flex-direction: column;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+    gap: 4px;
+  }
+  input, select, button {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #fff;
+    color: var(--text);
+  }
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--eng);
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+  }
+  button {
+    background: var(--blue);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    padding: 10px 18px;
+    transition: background 0.15s;
+  }
+  button:hover { background: var(--navy); }
+  button.secondary { background: #e2e8f0; color: var(--text); }
+  button.secondary:hover { background: #cbd5e1; }
+  .canvas-wrap {
+    background: #0f172a;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  canvas { max-width: 100%; height: auto; display: block; }
+  .warning-box { margin-top: 12px; }
+  .warn, .error, .ok, .info {
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    border-left: 4px solid;
+  }
+  .warn  { background: #fef3c7; border-color: var(--warn); color: #78350f; }
+  .error { background: #fee2e2; border-color: var(--err);  color: #7f1d1d; }
+  .ok    { background: #ecfdf5; border-color: var(--ok);   color: #065f46; }
+  .info  { background: #eff6ff; border-color: var(--blue); color: #1e3a8a; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .CodeMirror { border: 1px solid #cbd5e1; border-radius: 6px; height: 400px; font-size: 12.5px; }
+  #upload-status { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 10px; }
+  .check { flex-direction: row; align-items: center; color: var(--text); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>CNC G-Code Generator</h1>
+  <span class="badge">FANUC Prototype</span>
+</header>
+
+<main>
+  <section class="card">
+    <h2>1. Upload Drawing</h2>
+    <div class="row">
+      <label style="flex:1;min-width:220px;">Drawing file
+        <input type="file" id="file-input" accept=".dxf,.svg,.pdf,.png,.jpg,.jpeg" />
+      </label>
+      <label>Raster scale (mm/px)
+        <input type="number" id="scale-input" value="1.0" step="0.01" style="width:120px;" />
+      </label>
+      <button onclick="uploadFile()">Analyse Drawing</button>
+    </div>
+    <p id="upload-status"></p>
+  </section>
+
+  <section class="card" id="analysis-screen" style="display:none;">
+    <h2>2. Drawing Analysis &amp; Preview</h2>
+    <div class="canvas-wrap">
+      <canvas id="preview-canvas" width="900" height="500"></canvas>
+    </div>
+    <p id="geometry-summary" style="font-size:12px;color:var(--muted);margin:10px 0 0;"></p>
+    <div id="geometry-warnings" class="warning-box"></div>
+  </section>
+
+  <section class="card" id="config-screen" style="display:none;">
+    <h2>3. Machining Configuration</h2>
+    <div class="grid">
+      <label>Machine
+        <select id="machine-type">
+          <option value="mill">Mill</option>
+          <option value="lathe">Lathe</option>
+        </select>
+      </label>
+      <label>Operation
+        <select id="operation">
+          <option value="contour">2D Contour (Mill)</option>
+          <option value="facing">Facing</option>
+          <option value="pocket">Pocket</option>
+          <option value="drill">Drill</option>
+          <option value="turn_rough">Turn Rough</option>
+          <option value="turn_finish">Turn Finish</option>
+          <option value="groove">Groove</option>
+        </select>
+      </label>
+      <label>Units
+        <select id="units">
+          <option value="mm">Metric (mm)</option>
+          <option value="inch">Imperial (inch)</option>
+        </select>
+      </label>
+      <label>Tool Ø (mm)
+        <input type="number" id="tool-dia" value="6.0" step="0.1" />
+      </label>
+      <label>Spindle RPM
+        <input type="number" id="spindle" value="3000" />
+      </label>
+      <label>Feed rate
+        <input type="number" id="feed" value="300" step="10" />
+      </label>
+      <label>Depth of cut
+        <input type="number" id="doc" value="2.0" step="0.5" />
+      </label>
+      <label>Safe Z
+        <input type="number" id="safe-z" value="10.0" />
+      </label>
+      <label>Stock X min
+        <input type="number" id="stock-x-min" value="0" />
+      </label>
+      <label>Stock X max
+        <input type="number" id="stock-x-max" value="100" />
+      </label>
+      <label>Stock Y min
+        <input type="number" id="stock-y-min" value="0" />
+      </label>
+      <label>Stock Y max
+        <input type="number" id="stock-y-max" value="60" />
+      </label>
+      <label>Stock Z bottom
+        <input type="number" id="stock-z-bottom" value="-5" />
+      </label>
+      <label class="check">
+        <input type="checkbox" id="coolant" checked /> Coolant
+      </label>
+    </div>
+    <div class="actions">
+      <button onclick="generateGCode()">Generate G-Code</button>
+    </div>
+  </section>
+
+  <section class="card" id="gcode-screen" style="display:none;">
+    <h2>4. G-Code Editor &amp; Validation</h2>
+    <textarea id="gcode-editor" style="display:none;"></textarea>
+    <div id="validation-report" class="warning-box"></div>
+    <div class="actions">
+      <button onclick="downloadGCode()">Download .nc</button>
+      <button class="secondary" onclick="copyGCode()">Copy to Clipboard</button>
+    </div>
+  </section>
+</main>
+
+<script>
+let currentGeometry = null;
+let cmInstance = null;
+
+async function uploadFile() {
+  const fileInput = document.getElementById("file-input");
+  const file = fileInput.files[0];
+  if (!file) { alert("Choose a drawing file first."); return; }
+
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("scale_mm_per_px", document.getElementById("scale-input").value);
+
+  document.getElementById("upload-status").textContent = "Uploading & parsing…";
+
+  try {
+    const res = await fetch("/api/upload", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) {
+      document.getElementById("upload-status").textContent = "";
+      alert(data.detail || "Upload failed");
+      return;
+    }
+    currentGeometry = data.geometry;
+    drawGeometry(currentGeometry);
+    showWarnings("geometry-warnings", currentGeometry.warnings);
+    document.getElementById("geometry-summary").textContent =
+      `${currentGeometry.entities.length} entities · ` +
+      `${currentGeometry.source_format.toUpperCase()} · ` +
+      `confidence ${currentGeometry.confidence}`;
+    document.getElementById("upload-status").textContent = "Parsed: " + data.filename;
+    document.getElementById("analysis-screen").style.display = "block";
+    document.getElementById("config-screen").style.display = "block";
+  } catch (e) {
+    document.getElementById("upload-status").textContent = "";
+    alert("Upload error: " + e.message);
+  }
+}
+
+function drawGeometry(geom) {
+  const canvas = document.getElementById("preview-canvas");
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!geom.bbox || geom.bbox.min_x === undefined) return;
+  const b = geom.bbox;
+  const pad = 40;
+  const w = b.max_x - b.min_x;
+  const h = b.max_y - b.min_y;
+  if (w <= 0 || h <= 0) return;
+
+  const s = Math.min((canvas.width - 2 * pad) / w, (canvas.height - 2 * pad) / h);
+  const tx = x => pad + (x - b.min_x) * s;
+  const ty = y => canvas.height - pad - (y - b.min_y) * s;
+
+  ctx.strokeStyle = "rgba(59,130,246,0.08)";
+  ctx.lineWidth = 1;
+  for (let gx = 0; gx < canvas.width; gx += 40) {
+    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, canvas.height); ctx.stroke();
+  }
+  for (let gy = 0; gy < canvas.height; gy += 40) {
+    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(canvas.width, gy); ctx.stroke();
+  }
+
+  ctx.strokeStyle = "#3b82f6";
+  ctx.lineWidth = 2;
+  geom.entities.forEach(e => {
+    ctx.beginPath();
+    if (e.type === "line") {
+      ctx.moveTo(tx(e.start.x), ty(e.start.y));
+      ctx.lineTo(tx(e.end.x), ty(e.end.y));
+    } else if (e.type === "circle") {
+      ctx.arc(tx(e.center.x), ty(e.center.y), e.radius * s, 0, 2 * Math.PI);
+    } else if (e.type === "arc") {
+      const start = -e.end_angle * Math.PI / 180;
+      const end = -e.start_angle * Math.PI / 180;
+      ctx.arc(tx(e.center.x), ty(e.center.y), e.radius * s, start, end, !e.clockwise);
+    }
+    ctx.stroke();
+  });
+
+  ctx.strokeStyle = "rgba(255,255,255,0.2)";
+  ctx.setLineDash([5, 5]);
+  ctx.strokeRect(tx(b.min_x), ty(b.max_y), w * s, h * s);
+  ctx.setLineDash([]);
+}
+
+async function generateGCode() {
+  if (!currentGeometry) { alert("Upload a drawing first."); return; }
+
+  const cfg = {
+    machine_type: document.getElementById("machine-type").value,
+    controller: "fanuc",
+    units: document.getElementById("units").value,
+    work_offset: "G54",
+    stock: {
+      x_min: +document.getElementById("stock-x-min").value,
+      x_max: +document.getElementById("stock-x-max").value,
+      y_min: +document.getElementById("stock-y-min").value,
+      y_max: +document.getElementById("stock-y-max").value,
+      z_top: 0,
+      z_bottom: +document.getElementById("stock-z-bottom").value,
+      diameter: 50, z_start: 0, z_end: -100, final_diameter: 40
+    },
+    tool: {
+      number: 1,
+      diameter: +document.getElementById("tool-dia").value,
+      type: "endmill"
+    },
+    spindle_rpm: +document.getElementById("spindle").value,
+    feed_rate: +document.getElementById("feed").value,
+    feed_mode: "G94",
+    depth_of_cut: +document.getElementById("doc").value,
+    stepover: 3,
+    finishing_allowance: 0.2,
+    safe_z: +document.getElementById("safe-z").value,
+    retract_z: 5,
+    coolant: document.getElementById("coolant").checked,
+    operation: document.getElementById("operation").value,
+    operation_params: {}
+  };
+
+  try {
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ geometry: currentGeometry, config: cfg })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.detail || "Generation failed");
+      return;
+    }
+
+    setEditorContent(data.gcode);
+    showWarnings("validation-report",
+      data.issues.map(i => `[${i.level.toUpperCase()}] ${i.message}`));
+    document.getElementById("gcode-screen").style.display = "block";
+    document.getElementById("gcode-screen").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    alert("Generate error: " + e.message);
+  }
+}
+
+function setEditorContent(text) {
+  if (typeof CodeMirror === "undefined") {
+    const ta = document.getElementById("gcode-editor");
+    ta.value = text;
+    ta.style.display = "block";
+    ta.style.height = "400px";
+    return;
+  }
+  if (!cmInstance) {
+    cmInstance = CodeMirror.fromTextArea(
+      document.getElementById("gcode-editor"),
+      { lineNumbers: true, readOnly: false, mode: "text/plain" }
+    );
+  }
+  cmInstance.setValue(text);
+}
+
+function getEditorContent() {
+  if (cmInstance) return cmInstance.getValue();
+  return document.getElementById("gcode-editor").value;
+}
+
+function showWarnings(elId, messages) {
+  const el = document.getElementById(elId);
+  if (!messages || !messages.length) {
+    el.innerHTML = "<div class='ok'>No warnings.</div>";
+    return;
+  }
+  el.innerHTML = messages.map(m => {
+    const level =
+      m.startsWith("[ERROR]") || m.startsWith("ERROR") ? "error" :
+      m.startsWith("[INFO]") ? "info" :
+      "warn";
+    return `<div class="${level}">${m}</div>`;
+  }).join("");
+}
+
+function downloadGCode() {
+  const blob = new Blob([getEditorContent()], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "program.nc";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function copyGCode() {
+  navigator.clipboard.writeText(getEditorContent())
+    .then(() => alert("G-code copied to clipboard."))
+    .catch(() => alert("Copy failed — select the text manually."));
+}
+</script>
+</body>
+</html>
