@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>ForgeCAM AI - Production</title>
+<title>ForgeCAM AI - STEP Support</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <style>
@@ -53,8 +53,8 @@
 <div class="sidebar" id="sidebar">
   <div class="logo">Forge<span>CAM</span> AI</div>
   <div class="form-group">
-    <label>1. Geometry File</label>
-    <input type="file" id="file-input" accept=".dxf,.pdf,.png,.jpg,.jpeg" onchange="uploadFile()" />
+    <label>1. Geometry File (DXF/STEP/PDF/IMG)</label>
+    <input type="file" id="file-input" accept=".dxf,.step,.stp,.pdf,.png,.jpg,.jpeg" onchange="uploadFile()" />
   </div>
   
   <div class="form-group">
@@ -92,7 +92,7 @@
   <div class="form-group"><label>Depth of Cut (mm)</label><input type="number" id="doc" value="2.0" /></div>
   <div class="form-group"><label>Feed Rate (mm/min)</label><input type="number" id="feed" value="300" /></div>
   
-  <button id="btn-gen" onclick="generateCode()" disabled>5. Generate Toolpath</button>
+  <button id="btn-gen" onclick="generateCode()" disabled>5. Generate G-Code</button>
 </div>
 
 <div class="main">
@@ -130,42 +130,28 @@ function initThree() {
   const canvas = document.getElementById('three-canvas');
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x050810);
-  
   const aspect = canvas.clientWidth / canvas.clientHeight;
   camera = new THREE.PerspectiveCamera(45, aspect, 1, 2000);
   camera.position.set(180, 150, 180);
-  
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setSize(canvas.clientWidth, canvas.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
-  
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
   const light = new THREE.DirectionalLight(0xffffff, 0.8);
   light.position.set(100, 200, 100);
   scene.add(light);
-  
   const grid = new THREE.GridHelper(400, 40, 0x334155, 0x1e293b);
   scene.add(grid);
-  
-  toolMesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(3, 3, 20, 16),
-    new THREE.MeshStandardMaterial({ color: 0xef4444, metalness: 0.8 })
-  );
+  toolMesh = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 20, 16), new THREE.MeshStandardMaterial({ color: 0xef4444, metalness: 0.8 }));
   toolMesh.visible = false;
   scene.add(toolMesh);
-  
   animate();
 }
 
-function animate() {
-  requestAnimationFrame(animate);
-  controls.update();
-  renderer.render(scene, camera);
-}
+function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
 
 function toggleUI() {
   const type = document.getElementById('machine-type').value;
@@ -176,26 +162,21 @@ async function uploadFile() {
   const file = document.getElementById('file-input').files[0];
   if (!file) return;
   document.getElementById('status').textContent = "Parsing...";
-  
   const fd = new FormData();
   fd.append("file", file);
-  
   try {
     const res = await fetch("/api/upload", { method: "POST", body: fd });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail);
-    
     currentGeometry = data.geometry;
     document.getElementById('status').textContent = `Loaded: ${data.filename}`;
     document.getElementById('btn-gen').disabled = false;
-    
     if (partMesh) scene.remove(partMesh);
     if (pathLine) scene.remove(pathLine);
     toolMesh.visible = false;
     document.getElementById('sim-controls').style.display = 'none';
     document.getElementById('code-panel').style.display = 'none';
     document.getElementById('warnings-banner').style.display = 'none';
-    
     if (window.innerWidth <= 768) toggleSidebar();
   } catch (e) {
     document.getElementById('status').textContent = "Error";
@@ -206,12 +187,10 @@ async function uploadFile() {
 async function generateCode() {
   document.getElementById('status').textContent = "Generating...";
   document.getElementById('warnings-banner').style.display = 'none';
-  
   const type = document.getElementById('machine-type').value;
   const matType = document.getElementById('material').value;
   const toolType = document.getElementById('tool').value;
   
-  // Interaction Logic: Material & Tool mapping
   let material = { name: "Aluminum", cutting_speed: 400, feed_factor: 1.2 };
   if (matType === "steel") material = { name: "Steel", cutting_speed: 150, feed_factor: 1.0 };
   if (matType === "stainless") material = { name: "Stainless", cutting_speed: 80, feed_factor: 0.7 };
@@ -249,7 +228,6 @@ async function generateCode() {
     document.getElementById('code-panel').style.display = 'flex';
     document.getElementById('gcode-textarea').value = data.gcode;
     
-    // Show Validation Warnings (Interactions)
     if (data.warnings.length > 0) {
       const wb = document.getElementById('warnings-banner');
       wb.style.display = 'block';
@@ -260,7 +238,6 @@ async function generateCode() {
     toolpathData = data.toolpath;
     drawToolpath();
     setupSimulation();
-    
     if (window.innerWidth <= 768) toggleSidebar();
   } catch (e) {
     document.getElementById('status').textContent = "Error";
@@ -271,7 +248,6 @@ async function generateCode() {
 function buildExactShape(type, profile) {
   if (partMesh) scene.remove(partMesh);
   const mat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.9, roughness: 0.2 });
-  
   try {
     if (type === 'lathe') {
       const points = profile.map(p => new THREE.Vector2(Math.abs(p.r), p.z));
@@ -295,12 +271,10 @@ function buildExactShape(type, profile) {
 function drawToolpath() {
   if (pathLine) scene.remove(pathLine);
   if (!toolpathData || !toolpathData.length) return;
-  
   const points = toolpathData.map(p => new THREE.Vector3(p[0], p[1], p[2]));
   const geo = new THREE.BufferGeometry().setFromPoints(points);
   pathLine = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x0ea5e9 }));
   scene.add(pathLine);
-  
   toolMesh.visible = true;
   toolMesh.position.set(points[0].x, points[0].y, points[0].z);
 }
@@ -335,22 +309,9 @@ function runSimulation() {
   }
 }
 
-function scrubSimulation(val) {
-  simIndex = parseInt(val);
-  updateToolPosition();
-}
-
-function updateToolPosition() {
-  const p = toolpathData[simIndex];
-  if (p) toolMesh.position.set(p[0], p[1], p[2]);
-}
-
-function copyCode() {
-  const ta = document.getElementById('gcode-textarea');
-  ta.select();
-  document.execCommand('copy');
-  alert("G-Code Copied!");
-}
+function scrubSimulation(val) { simIndex = parseInt(val); updateToolPosition(); }
+function updateToolPosition() { const p = toolpathData[simIndex]; if (p) toolMesh.position.set(p[0], p[1], p[2]); }
+function copyCode() { const ta = document.getElementById('gcode-textarea'); ta.select(); document.execCommand('copy'); alert("G-Code Copied!"); }
 
 window.addEventListener('resize', () => {
   const canvas = document.getElementById('three-canvas');
