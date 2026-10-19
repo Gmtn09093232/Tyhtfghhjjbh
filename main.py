@@ -4,12 +4,12 @@ CNC G-Code Generator — Backend (single-file, Vercel-ready).
 Local run:
     pip install -r requirements.txt
     uvicorn main:app --reload --port 8000
-    → open http://localhost:8000
 
 Vercel:
-    Push to GitHub → Import in Vercel → Deploy.
-    Vercel serves  public/index.html  at  /
-    Vercel routes  /api/*            to   this FastAPI function.
+    Vercel routes every request to this FastAPI app.
+    `/`             → FileResponse serves index.html (same folder)
+    `/api/upload`   → geometry parser
+    `/api/generate` → toolpath + G-code generator
 """
 
 import os
@@ -24,7 +24,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-# ---------- Optional-dependency import with clear error ----------
+# ---------- dependencies ----------
 try:
     import ezdxf
     from svgpathtools import svg2paths, Line, CubicBezier, QuadraticBezier, Arc
@@ -32,17 +32,12 @@ try:
     import fitz  # PyMuPDF
 except ImportError as e:
     raise RuntimeError(
-        f"Missing dependency: {e.name}. "
-        "Run: pip install -r requirements.txt"
+        f"Missing dependency: {e.name}. Run: pip install -r requirements.txt"
     )
 
 # ============================================================
 # Pydantic models
 # ============================================================
-class Point(BaseModel):
-    x: float
-    y: float
-
 class GeometryModel(BaseModel):
     units: Literal["mm", "inch"] = "mm"
     entities: List[dict] = []
@@ -542,7 +537,6 @@ HERE = Path(__file__).resolve().parent
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "cnc_uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# ---- API routes ----
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -580,21 +574,18 @@ async def generate_gcode(req: GenerateRequest):
     issues = validate_gcode(gcode, cfg)
     return {"gcode": gcode, "issues": issues, "line_count": len(gcode.splitlines())}
 
-# ---- Root: serve index.html ----
-# On Vercel, "/" is served by the static public/index.html before it
-# reaches this function. Locally, this route returns it via FileResponse.
+# ---- Serve index.html (root of project — no public/ folder) ----
 @app.get("/", include_in_schema=False)
 async def index():
-    for candidate in (HERE / "public" / "index.html", HERE / "index.html"):
-        if candidate.exists():
-            return FileResponse(candidate)
+    candidate = HERE / "index.html"
+    if candidate.exists():
+        return FileResponse(candidate)
     return JSONResponse(
         {"error": "index.html not found",
-         "looked_in": [str(HERE / "public" / "index.html"), str(HERE / "index.html")]},
+         "expected_at": str(candidate)},
         status_code=500,
     )
 
-# ---- Local-only entrypoint ----
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
