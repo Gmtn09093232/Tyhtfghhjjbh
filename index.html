@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>ForgeCAM AI - STEP Support</title>
+<title>ForgeCAM AI</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <style>
@@ -228,16 +228,22 @@ async function generateCode() {
     document.getElementById('code-panel').style.display = 'flex';
     document.getElementById('gcode-textarea').value = data.gcode;
     
-    if (data.warnings.length > 0) {
+    // --- FIXED WARNING BANNER CHECK ---
+    if (data.warnings && data.warnings.length > 0) {
       const wb = document.getElementById('warnings-banner');
       wb.style.display = 'block';
       wb.innerHTML = data.warnings.map(w => `<div>⚠ ${w}</div>`).join('');
     }
     
-    buildExactShape(type, data.profile);
-    toolpathData = data.toolpath;
+    // --- SAFE FALLBACKS FOR 3D MESH ---
+    const safeProfile = data.profile || [];
+    const safeToolpath = data.toolpath || [];
+    
+    buildExactShape(type, safeProfile);
+    toolpathData = safeToolpath;
     drawToolpath();
     setupSimulation();
+    
     if (window.innerWidth <= 768) toggleSidebar();
   } catch (e) {
     document.getElementById('status').textContent = "Error";
@@ -247,6 +253,8 @@ async function generateCode() {
 
 function buildExactShape(type, profile) {
   if (partMesh) scene.remove(partMesh);
+  if (!profile || profile.length === 0) return; // Fail-safe
+
   const mat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.9, roughness: 0.2 });
   try {
     if (type === 'lathe') {
@@ -270,16 +278,20 @@ function buildExactShape(type, profile) {
 
 function drawToolpath() {
   if (pathLine) scene.remove(pathLine);
-  if (!toolpathData || !toolpathData.length) return;
+  if (!toolpathData || toolpathData.length === 0) return; // Fail-safe
+  
   const points = toolpathData.map(p => new THREE.Vector3(p[0], p[1], p[2]));
   const geo = new THREE.BufferGeometry().setFromPoints(points);
   pathLine = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x0ea5e9 }));
   scene.add(pathLine);
+  
   toolMesh.visible = true;
   toolMesh.position.set(points[0].x, points[0].y, points[0].z);
 }
 
 function setupSimulation() {
+  if (!toolpathData || toolpathData.length === 0) return; // Fail-safe
+  
   document.getElementById('sim-controls').style.display = 'flex';
   const slider = document.getElementById('sim-slider');
   slider.max = toolpathData.length - 1;
@@ -310,7 +322,10 @@ function runSimulation() {
 }
 
 function scrubSimulation(val) { simIndex = parseInt(val); updateToolPosition(); }
-function updateToolPosition() { const p = toolpathData[simIndex]; if (p) toolMesh.position.set(p[0], p[1], p[2]); }
+function updateToolPosition() { 
+  const p = toolpathData[simIndex]; 
+  if (p) toolMesh.position.set(p[0], p[1], p[2]); 
+}
 function copyCode() { const ta = document.getElementById('gcode-textarea'); ta.select(); document.execCommand('copy'); alert("G-Code Copied!"); }
 
 window.addEventListener('resize', () => {
