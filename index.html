@@ -3,100 +3,85 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Advanced CAM Simulator</title>
+<title>ForgeCAM AI - Exact Simulation</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <style>
-  :root {
-    --bg: #0b1120; --panel: #1e293b; --border: #334155; 
-    --text: #f8fafc; --muted: #94a3b8; --accent: #0ea5e9; --accent-h: #0284c7;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
-  
-  /* SIDEBAR */
+  :root { --bg: #0b1120; --panel: #1e293b; --border: #334155; --text: #f8fafc; --accent: #0ea5e9; }
+  body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); margin: 0; display: flex; height: 100vh; overflow: hidden; }
   .sidebar { width: 320px; background: var(--panel); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 15px; z-index: 10; }
-  .logo { font-size: 18px; font-weight: 800; letter-spacing: 1px; color: #fff; margin-bottom: 10px; }
+  .logo { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 10px; }
   .logo span { color: var(--accent); }
   .form-group { display: flex; flex-direction: column; gap: 5px; }
-  label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; }
-  input, select { background: #0f172a; color: #fff; border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; font-size: 13px; }
-  input:focus { outline: none; border-color: var(--accent); }
-  button { background: var(--accent); color: #fff; border: none; padding: 10px; border-radius: 6px; font-weight: 700; cursor: pointer; transition: 0.2s; text-transform: uppercase; font-size: 12px; }
-  button:hover { background: var(--accent-h); }
-  button:disabled { background: var(--border); cursor: not-allowed; }
-  
-  /* VIEWPORT */
+  label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; }
+  input, select { background: #0f172a; color: #fff; border: 1px solid var(--border); padding: 10px; border-radius: 6px; font-size: 13px; }
+  button { background: var(--accent); color: #fff; border: none; padding: 12px; border-radius: 6px; font-weight: 700; cursor: pointer; transition: 0.2s; }
+  button:hover { background: #0284c7; }
   .main { flex: 1; display: flex; flex-direction: column; }
-  .viewport { flex: 1; position: relative; background: #000; }
+  .viewport { flex: 1; position: relative; background: #050810; }
   #three-canvas { width: 100%; height: 100%; display: block; }
-  .overlay { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 20px; font-size: 12px; border: 1px solid var(--border); pointer-events: none; }
-  .sim-controls { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; background: rgba(30,41,59,0.8); padding: 10px; border-radius: 10px; border: 1px solid var(--border); backdrop-filter: blur(10px); }
+  .overlay { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.6); padding: 10px 20px; border-radius: 8px; font-size: 12px; border: 1px solid var(--border); }
   
-  /* CODE PANEL */
-  .code-panel { height: 35vh; background: #fff; border-top: 2px solid var(--accent); display: flex; flex-direction: column; }
-  .code-header { background: var(--panel); color: #fff; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600; }
-  .CodeMirror { height: calc(35vh - 40px) !important; font-family: monospace; font-size: 13px; }
+  /* Simulation Controls */
+  .sim-controls { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 15px; background: rgba(30,41,59,0.9); padding: 15px; border-radius: 10px; border: 1px solid var(--border); backdrop-filter: blur(10px); align-items: center; }
+  .sim-controls input[type="range"] { width: 300px; accent-color: var(--accent); }
   
-  /* UTILS */
-  .lathe-ui, .mill-ui { display: none; flex-direction: column; gap: 15px; }
+  .code-panel { height: 35vh; background: #fff; border-top: 2px solid var(--accent); display: none; flex-direction: column; }
+  .code-header { background: var(--panel); padding: 10px 20px; display: flex; justify-content: space-between; color: #fff; }
+  .CodeMirror { height: calc(35vh - 40px) !important; font-size: 13px; }
+  .issues-panel { background: #1e293b; padding: 10px; font-size: 12px; color: #fca5a5; display: none; }
+  .lathe-ui, .mill-ui { display: none; flex-direction: column; gap: 10px; }
   .active { display: flex; }
 </style>
 </head>
 <body>
-
-<!-- SIDEBAR -->
 <div class="sidebar">
-  <div class="logo">CAM<span>PRO</span></div>
-  
+  <div class="logo">Forge<span>CAM</span> AI</div>
   <div class="form-group">
-    <label>Drawing (DXF / IMG)</label>
-    <input type="file" id="file-input" onchange="uploadFile()" />
+    <label>Upload Drawing (DXF / PDF / IMG)</label>
+    <input type="file" id="file-input" accept=".dxf,.pdf,.png,.jpg,.jpeg" onchange="uploadFile()" />
   </div>
-
   <div class="form-group">
-    <label>Machine Type</label>
+    <label>Machine Profile</label>
     <select id="machine-type" onchange="toggleUI()">
-      <option value="lathe">CNC Lathe</option>
-      <option value="mill">CNC Mill</option>
+      <option value="lathe">FANUC 0i-TF (Lathe)</option>
+      <option value="mill">FANUC 0i-MF (Mill)</option>
     </select>
   </div>
-
+  
   <div id="lathe-ui" class="lathe-ui active">
     <div class="form-group"><label>Stock Diameter (mm)</label><input type="number" id="l-dia" value="50" /></div>
     <div class="form-group"><label>Stock Length (mm)</label><input type="number" id="l-len" value="150" /></div>
   </div>
 
   <div id="mill-ui" class="mill-ui">
-    <div class="form-group"><label>Stock X (mm)</label><input type="number" id="m-x" value="100" /></div>
-    <div class="form-group"><label>Stock Y (mm)</label><input type="number" id="m-y" value="80" /></div>
-    <div class="form-group"><label>Tool Diameter (mm)</label><input type="number" id="m-tool" value="10" /></div>
+    <div class="form-group"><label>Tool Diameter (mm)</label><input type="number" id="m-tool" value="6.0" /></div>
   </div>
 
-  <div class="form-group"><label>Depth of Cut (mm)</label><input type="number" id="doc" value="2" /></div>
+  <div class="form-group"><label>Depth of Cut (mm)</label><input type="number" id="doc" value="2.0" /></div>
   <div class="form-group"><label>Feed Rate (mm/min)</label><input type="number" id="feed" value="300" /></div>
-
-  <button id="btn-gen" onclick="generateCode()" disabled>Generate & Simulate</button>
+  
+  <button id="btn-gen" onclick="generateCode()" disabled>Generate Exact Toolpath</button>
 </div>
 
-<!-- MAIN VIEWPORT -->
 <div class="main">
   <div class="viewport">
     <canvas id="three-canvas"></canvas>
-    <div class="overlay" id="status">Load a file to begin...</div>
+    <div class="overlay" id="status">Upload a file to begin</div>
     
+    <!-- Live Animation Controls -->
     <div class="sim-controls" id="sim-controls" style="display:none;">
-      <button onclick="togglePlay()" id="btn-play" style="width:100px;">PLAY</button>
-      <input type="range" id="sim-slider" min="0" max="100" value="0" style="width: 200px;" oninput="scrubSimulation(this.value)">
+      <button id="btn-play" onclick="togglePlay()" style="width:80px; padding:8px;">PLAY</button>
+      <input type="range" id="sim-slider" min="0" max="100" value="0" oninput="scrubSimulation(this.value)">
     </div>
   </div>
-
-  <div class="code-panel" id="code-panel" style="display:none;">
+  <div class="issues-panel" id="issues-panel"></div>
+  <div class="code-panel" id="code-panel">
     <div class="code-header">
       <span>FANUC G-CODE OUTPUT</span>
-      <button onclick="copyCode()" style="padding: 4px 12px;">COPY</button>
+      <button onclick="copyCode()" style="padding: 4px 12px; font-size:12px;">COPY</button>
     </div>
     <textarea id="gcode-textarea"></textarea>
   </div>
@@ -104,46 +89,45 @@
 
 <script>
 let scene, camera, renderer, controls;
-let stockMesh, toolMesh, pathLine;
+let stockMesh, partMesh, toolMesh, pathLine;
+let currentGeometry = null;
+let cmInstance = null;
+
+// Animation State
 let toolpathData = [];
 let isPlaying = false;
 let simIndex = 0;
-let cmInstance = null;
 let animFrameId = null;
 
-// --- 3D SETUP ---
 function initThree() {
   const canvas = document.getElementById('three-canvas');
   scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x0b1120, 200, 600);
-
+  scene.background = new THREE.Color(0x050810);
+  
   camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 1, 2000);
-  camera.position.set(150, 150, 150);
-
+  camera.position.set(180, 150, 180);
+  
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-
+  
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-
-  // Lights
+  
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  dirLight.position.set(100, 200, 100);
-  scene.add(dirLight);
-
-  // Grid
-  const grid = new THREE.GridHelper(500, 50, 0x334155, 0x1e293b);
-  grid.position.y = -1;
+  const light = new THREE.DirectionalLight(0xffffff, 0.8);
+  light.position.set(100, 200, 100);
+  scene.add(light);
+  
+  const grid = new THREE.GridHelper(400, 40, 0x334155, 0x1e293b);
   scene.add(grid);
-
-  // Tool (Generic cylinder for now)
-  const toolGeo = new THREE.CylinderGeometry(2, 2, 30, 16);
-  const toolMat = new THREE.MeshStandardMaterial({ color: 0xef4444, metalness: 1, roughness: 0.2 });
-  toolMesh = new THREE.Mesh(toolGeo, toolMat);
+  
+  toolMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(3, 3, 20, 16),
+    new THREE.MeshStandardMaterial({ color: 0xef4444, metalness: 0.8 })
+  );
   toolMesh.visible = false;
   scene.add(toolMesh);
-
+  
   animate();
 }
 
@@ -153,53 +137,16 @@ function animate() {
   renderer.render(scene, camera);
 }
 
-// --- UI LOGIC ---
 function toggleUI() {
   const type = document.getElementById('machine-type').value;
   document.getElementById('lathe-ui').classList.toggle('active', type === 'lathe');
   document.getElementById('mill-ui').classList.toggle('active', type === 'mill');
-  updateStock();
 }
 
-function updateStock() {
-  if (stockMesh) scene.remove(stockMesh);
-  if (pathLine) scene.remove(pathLine);
-  toolMesh.visible = false;
-  document.getElementById('sim-controls').style.display = 'none';
-
-  const type = document.getElementById('machine-type').value;
-  const mat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.3, metalness: 0.5 });
-
-  if (type === 'lathe') {
-    const d = parseFloat(document.getElementById('l-dia').value);
-    const l = parseFloat(document.getElementById('l-len').value);
-    stockMesh = new THREE.Mesh(new THREE.CylinderGeometry(d/2, d/2, l, 64), mat);
-    stockMesh.rotation.x = Math.PI / 2;
-    stockMesh.position.z = -l / 2;
-    
-    // Lathe tool geometry
-    toolMesh.geometry = new THREE.ConeGeometry(4, 20, 4);
-    toolMesh.rotation.x = Math.PI;
-  } else {
-    const x = parseFloat(document.getElementById('m-x').value);
-    const y = parseFloat(document.getElementById('m-y').value);
-    stockMesh = new THREE.Mesh(new THREE.BoxGeometry(x, 20, y), mat);
-    stockMesh.position.set(x/2, -10, y/2);
-    
-    // Mill tool geometry
-    const td = parseFloat(document.getElementById('m-tool').value);
-    toolMesh.geometry = new THREE.CylinderGeometry(td/2, td/2, 40, 16);
-    toolMesh.rotation.set(0, 0, 0);
-  }
-  scene.add(stockMesh);
-  camera.lookAt(0, 0, 0);
-}
-
-// --- API CALLS ---
 async function uploadFile() {
   const file = document.getElementById('file-input').files[0];
   if (!file) return;
-  document.getElementById('status').textContent = "Parsing...";
+  document.getElementById('status').textContent = "Parsing Geometry...";
   
   const fd = new FormData();
   fd.append("file", file);
@@ -207,27 +154,39 @@ async function uploadFile() {
   try {
     const res = await fetch("/api/upload", { method: "POST", body: fd });
     const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
+    
+    currentGeometry = data.geometry;
     document.getElementById('status').textContent = `Loaded: ${data.filename}`;
     document.getElementById('btn-gen').disabled = false;
-    updateStock();
-  } catch(e) { alert(e.message); }
+    
+    // Clear previous shapes
+    if (partMesh) scene.remove(partMesh);
+    if (pathLine) scene.remove(pathLine);
+    toolMesh.visible = false;
+    document.getElementById('sim-controls').style.display = 'none';
+    
+  } catch (e) {
+    document.getElementById('status').textContent = "Error";
+    alert(e.message);
+  }
 }
 
 async function generateCode() {
-  document.getElementById('status').textContent = "Generating Toolpath...";
+  document.getElementById('status').textContent = "Generating Exact Toolpath...";
   const type = document.getElementById('machine-type').value;
   
   const payload = {
-    geometry: { entities: [], bbox: {} }, // Dummy geometry for this demo
+    geometry: currentGeometry,
     config: {
       machine_type: type,
-      stock_diameter: parseFloat(document.getElementById('l-dia')?.value || 50),
-      stock_length: parseFloat(document.getElementById('l-len')?.value || 150),
-      tool_diameter: parseFloat(document.getElementById('m-tool')?.value || 10),
+      tool_diameter: parseFloat(document.getElementById('m-tool')?.value || 6.0),
       depth_of_cut: parseFloat(document.getElementById('doc').value),
       feed_rate: parseFloat(document.getElementById('feed').value),
       spindle_rpm: 3000,
-      safe_z: 20
+      safe_z: 10.0,
+      stock_dia: parseFloat(document.getElementById('l-dia')?.value || 50),
+      stock_length: parseFloat(document.getElementById('l-len')?.value || 150)
     }
   };
 
@@ -237,21 +196,68 @@ async function generateCode() {
       body: JSON.stringify(payload)
     });
     const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
     
-    toolpathData = data.toolpath;
     document.getElementById('status').textContent = "Simulation Ready";
     document.getElementById('code-panel').style.display = 'flex';
+    document.getElementById('issues-panel').style.display = 'block';
+    
+    const issueHtml = data.issues.length ? data.issues.map(i => `<div>• ${i}</div>`).join('') : '<div style="color:#10b981">✔ Validation Passed</div>';
+    document.getElementById('issues-panel').innerHTML = issueHtml;
+    
     setCode(data.gcode);
     
+    // 1. Build the EXACT 3D Shape
+    buildExactShape(type, data.profile);
+    
+    // 2. Draw the Toolpath
+    toolpathData = data.toolpath;
     drawToolpath();
     setupSimulation();
     
-  } catch(e) { alert(e.message); }
+  } catch (e) {
+    document.getElementById('status').textContent = "Error";
+    alert(e.message);
+  }
 }
 
-// --- SIMULATION LOGIC ---
+function buildExactShape(type, profile) {
+  if (partMesh) scene.remove(partMesh);
+  
+  const mat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.9, roughness: 0.2 });
+  
+  if (type === 'lathe') {
+    // Revolve the exact profile coordinates
+    const points = profile.map(p => new THREE.Vector2(Math.abs(p.r), p.z));
+    // Add closing points
+    points.unshift(new THREE.Vector2(0, profile[0].z));
+    points.push(new THREE.Vector2(0, profile[profile.length-1].z));
+    
+    const latheGeo = new THREE.LatheGeometry(points, 64);
+    partMesh = new THREE.Mesh(latheGeo, mat);
+    partMesh.rotation.x = Math.PI / 2;
+  } else {
+    // Extrude the exact mill profile
+    const shape = new THREE.Shape();
+    if (profile.length > 2) {
+      shape.moveTo(profile[0][0], profile[0][1]);
+      for (let i = 1; i < profile.length; i++) {
+        shape.lineTo(profile[i][0], profile[i][1]);
+      }
+      const extrudeSettings = { depth: 10, bevelEnabled: false };
+      const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+      partMesh = new THREE.Mesh(geo, mat);
+      partMesh.position.z = -10;
+    }
+  }
+  
+  if (partMesh) scene.add(partMesh);
+}
+
 function drawToolpath() {
   if (pathLine) scene.remove(pathLine);
+  if (!toolpathData || !toolpathData.length) return;
+  
   const points = toolpathData.map(p => new THREE.Vector3(p[0], p[1], p[2]));
   const geo = new THREE.BufferGeometry().setFromPoints(points);
   const mat = new THREE.LineBasicMaterial({ color: 0x0ea5e9, linewidth: 2 });
@@ -262,14 +268,16 @@ function drawToolpath() {
   toolMesh.position.set(points[0].x, points[0].y, points[0].z);
 }
 
+/* --- SIMULATION LOGIC --- */
 function setupSimulation() {
   document.getElementById('sim-controls').style.display = 'flex';
-  document.getElementById('sim-slider').max = toolpathData.length - 1;
-  document.getElementById('sim-slider').value = 0;
+  const slider = document.getElementById('sim-slider');
+  slider.max = toolpathData.length - 1;
+  slider.value = 0;
   simIndex = 0;
   isPlaying = false;
   document.getElementById('btn-play').textContent = "PLAY";
-  if(animFrameId) cancelAnimationFrame(animFrameId);
+  updateToolPosition();
 }
 
 function togglePlay() {
@@ -284,8 +292,7 @@ function runSimulation() {
     simIndex += 1;
     document.getElementById('sim-slider').value = simIndex;
     updateToolPosition();
-    // Adjust speed (skip frames for longer programs)
-    animFrameId = setTimeout(() => requestAnimationFrame(runSimulation), 50);
+    animFrameId = setTimeout(() => requestAnimationFrame(runSimulation), 50); // Speed control
   } else {
     isPlaying = false;
     document.getElementById('btn-play').textContent = "REPLAY";
@@ -299,24 +306,20 @@ function scrubSimulation(val) {
 
 function updateToolPosition() {
   const p = toolpathData[simIndex];
-  if (p) {
-    toolMesh.position.set(p[0], p[1], p[2]);
-    
-    // For Mill, move tool tip to coordinates
-    if (document.getElementById('machine-type').value === 'mill') {
-        toolMesh.position.y = p[1] + 20; // Offset cylinder
-    }
-  }
+  if (p) toolMesh.position.set(p[0], p[1], p[2]);
 }
 
-// --- UTILS ---
+/* --- UTILS --- */
 function setCode(code) {
   if (!cmInstance) cmInstance = CodeMirror.fromTextArea(document.getElementById('gcode-textarea'), { lineNumbers: true, readOnly: true });
   cmInstance.setValue(code);
 }
-function copyCode() { navigator.clipboard.writeText(cmInstance.getValue()); alert("Copied!"); }
 
-// Resize
+function copyCode() {
+  navigator.clipboard.writeText(cmInstance.getValue());
+  alert("Copied!");
+}
+
 window.addEventListener('resize', () => {
   const canvas = document.getElementById('three-canvas');
   camera.aspect = canvas.clientWidth / canvas.clientHeight;
