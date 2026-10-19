@@ -1,9 +1,3 @@
-"""
-Tests for the CNC G-Code Generator.
-Run with:  pytest test.py -v
-Or:        python test.py
-"""
-
 import os
 import sys
 import tempfile
@@ -146,19 +140,12 @@ def test_dxf_parser_roundtrip():
 
 if __name__ == "__main__":
     tests = [
-        test_bbox,
-        test_validate_geometry_ok,
-        test_validate_geometry_empty,
-        test_mill_facing_generates_feed_moves,
-        test_mill_contour_generates_moves,
-        test_mill_drill_generates_drill_move,
-        test_lathe_facing_generates_moves,
-        test_postprocessor_header_footer,
-        test_postprocessor_includes_g81_for_drill,
-        test_validation_metric_inch_mismatch,
-        test_validation_feed_limit,
-        test_validation_flags_missing_safe_end,
-        test_dxf_parser_roundtrip,
+        test_bbox, test_validate_geometry_ok, test_validate_geometry_empty,
+        test_mill_facing_generates_feed_moves, test_mill_contour_generates_moves,
+        test_mill_drill_generates_drill_move, test_lathe_facing_generates_moves,
+        test_postprocessor_header_footer, test_postprocessor_includes_g81_for_drill,
+        test_validation_metric_inch_mismatch, test_validation_feed_limit,
+        test_validation_flags_missing_safe_end, test_dxf_parser_roundtrip,
     ]
     failed = 0
     for t in tests:
