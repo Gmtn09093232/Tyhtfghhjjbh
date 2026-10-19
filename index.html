@@ -3,97 +3,57 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Modern CNC Generator</title>
+<title>Advanced CAM Simulator</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <style>
   :root {
-    --bg: #0f172a;
-    --panel: #1e293b;
-    --text: #f8fafc;
-    --muted: #94a3b8;
-    --accent: #3b82f6;
-    --accent-hover: #2563eb;
-    --border: #334155;
+    --bg: #0b1120; --panel: #1e293b; --border: #334155; 
+    --text: #f8fafc; --muted: #94a3b8; --accent: #0ea5e9; --accent-h: #0284c7;
   }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; font-family: 'Inter', system-ui, sans-serif;
-    background: var(--bg); color: var(--text);
-    display: flex; height: 100vh; overflow: hidden;
-  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
   
-  /* SIDEBAR CONFIG */
-  .sidebar {
-    width: 340px; background: var(--panel); border-right: 1px solid var(--border);
-    padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px;
-    box-shadow: 2px 0 15px rgba(0,0,0,0.2); z-index: 10;
-  }
-  .logo { font-size: 20px; font-weight: 700; letter-spacing: 1px; margin-bottom: 10px; color: #fff; }
+  /* SIDEBAR */
+  .sidebar { width: 320px; background: var(--panel); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 15px; z-index: 10; }
+  .logo { font-size: 18px; font-weight: 800; letter-spacing: 1px; color: #fff; margin-bottom: 10px; }
   .logo span { color: var(--accent); }
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+  input, select { background: #0f172a; color: #fff; border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+  input:focus { outline: none; border-color: var(--accent); }
+  button { background: var(--accent); color: #fff; border: none; padding: 10px; border-radius: 6px; font-weight: 700; cursor: pointer; transition: 0.2s; text-transform: uppercase; font-size: 12px; }
+  button:hover { background: var(--accent-h); }
+  button:disabled { background: var(--border); cursor: not-allowed; }
   
-  .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
-  label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-  input, select {
-    background: #0f172a; color: #fff; border: 1px solid var(--border);
-    padding: 10px; border-radius: 8px; font-size: 14px; transition: 0.2s;
-  }
-  input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
+  /* VIEWPORT */
+  .main { flex: 1; display: flex; flex-direction: column; }
+  .viewport { flex: 1; position: relative; background: #000; }
+  #three-canvas { width: 100%; height: 100%; display: block; }
+  .overlay { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 20px; font-size: 12px; border: 1px solid var(--border); pointer-events: none; }
+  .sim-controls { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; background: rgba(30,41,59,0.8); padding: 10px; border-radius: 10px; border: 1px solid var(--border); backdrop-filter: blur(10px); }
   
-  .file-drop {
-    border: 2px dashed var(--border); border-radius: 8px; padding: 20px;
-    text-align: center; cursor: pointer; transition: 0.2s; font-size: 13px; color: var(--muted);
-  }
-  .file-drop:hover { border-color: var(--accent); background: rgba(59,130,246,0.05); }
-  
-  button {
-    background: var(--accent); color: #fff; border: none; padding: 12px;
-    border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s;
-    width: 100%; font-size: 14px;
-  }
-  button:hover { background: var(--accent-hover); }
-  button:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
-  
-  /* MAIN VIEWPORT */
-  .viewport {
-    flex: 1; display: flex; flex-direction: column; position: relative;
-  }
-  .header-bar {
-    padding: 15px 24px; background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(10px);
-    border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;
-  }
-  .status-badge { font-size: 12px; padding: 4px 10px; background: var(--border); border-radius: 20px; }
-  
-  #three-container { flex: 1; position: relative; background: #000; }
-  .canvas-overlay {
-    position: absolute; bottom: 20px; left: 20px; font-size: 12px; color: var(--muted);
-    background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 6px; pointer-events: none;
-  }
-
-  /* CODE EDITOR PANEL */
-  .code-panel {
-    height: 35vh; background: #fff; border-top: 2px solid var(--accent);
-    display: flex; flex-direction: column;
-  }
-  .code-header { background: #1e293b; color: #fff; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; }
+  /* CODE PANEL */
+  .code-panel { height: 35vh; background: #fff; border-top: 2px solid var(--accent); display: flex; flex-direction: column; }
+  .code-header { background: var(--panel); color: #fff; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600; }
   .CodeMirror { height: calc(35vh - 40px) !important; font-family: monospace; font-size: 13px; }
   
-  /* Dynamic Classes */
-  .mill-only, .lathe-only { display: none; }
-  .active { display: flex !important; flex-direction: column; }
+  /* UTILS */
+  .lathe-ui, .mill-ui { display: none; flex-direction: column; gap: 15px; }
+  .active { display: flex; }
 </style>
 </head>
 <body>
 
 <!-- SIDEBAR -->
 <div class="sidebar">
-  <div class="logo">CNC<span>3D</span></div>
+  <div class="logo">CAM<span>PRO</span></div>
   
   <div class="form-group">
-    <label>Drawing File (DXF Recommended)</label>
-    <input type="file" id="file-input" accept=".dxf,.png,.jpg,.jpeg" onchange="uploadFile()" />
+    <label>Drawing (DXF / IMG)</label>
+    <input type="file" id="file-input" onchange="uploadFile()" />
   </div>
 
   <div class="form-group">
@@ -104,45 +64,39 @@
     </select>
   </div>
 
-  <!-- LATHE PARAMS -->
-  <div id="lathe-ui" class="lathe-only active">
+  <div id="lathe-ui" class="lathe-ui active">
     <div class="form-group"><label>Stock Diameter (mm)</label><input type="number" id="l-dia" value="50" /></div>
-    <div class="form-group"><label>Final Diameter (mm)</label><input type="number" id="l-final" value="30" /></div>
-    <div class="form-group"><label>Z End (mm)</label><input type="number" id="l-zend" value="-150" /></div>
+    <div class="form-group"><label>Stock Length (mm)</label><input type="number" id="l-len" value="150" /></div>
   </div>
 
-  <!-- MILL PARAMS -->
-  <div id="mill-ui" class="mill-only">
+  <div id="mill-ui" class="mill-ui">
     <div class="form-group"><label>Stock X (mm)</label><input type="number" id="m-x" value="100" /></div>
-    <div class="form-group"><label>Stock Y (mm)</label><input type="number" id="m-y" value="100" /></div>
-    <div class="form-group"><label>Z Depth (mm)</label><input type="number" id="m-z" value="-5" /></div>
+    <div class="form-group"><label>Stock Y (mm)</label><input type="number" id="m-y" value="80" /></div>
+    <div class="form-group"><label>Tool Diameter (mm)</label><input type="number" id="m-tool" value="10" /></div>
   </div>
 
-  <div class="form-group">
-    <label>Feed Rate (mm/min)</label>
-    <input type="number" id="feed" value="300" />
-  </div>
+  <div class="form-group"><label>Depth of Cut (mm)</label><input type="number" id="doc" value="2" /></div>
+  <div class="form-group"><label>Feed Rate (mm/min)</label><input type="number" id="feed" value="300" /></div>
 
-  <button id="gen-btn" onclick="generateGCode()" disabled>Generate Toolpath</button>
+  <button id="btn-gen" onclick="generateCode()" disabled>Generate & Simulate</button>
 </div>
 
 <!-- MAIN VIEWPORT -->
-<div class="viewport">
-  <div class="header-bar">
-    <div style="font-weight: 600;">3D Toolpath Simulation</div>
-    <div class="status-badge" id="status">Waiting for file...</div>
-  </div>
-  
-  <div id="three-container">
-    <div class="canvas-overlay">Left Click: Rotate | Right Click: Pan | Scroll: Zoom</div>
+<div class="main">
+  <div class="viewport">
+    <canvas id="three-canvas"></canvas>
+    <div class="overlay" id="status">Load a file to begin...</div>
+    
+    <div class="sim-controls" id="sim-controls" style="display:none;">
+      <button onclick="togglePlay()" id="btn-play" style="width:100px;">PLAY</button>
+      <input type="range" id="sim-slider" min="0" max="100" value="0" style="width: 200px;" oninput="scrubSimulation(this.value)">
+    </div>
   </div>
 
   <div class="code-panel" id="code-panel" style="display:none;">
     <div class="code-header">
-      <span>Generated FANUC G-Code</span>
-      <div>
-        <button style="width:auto; padding: 6px 12px; font-size:12px;" onclick="copyCode()">Copy Code</button>
-      </div>
+      <span>FANUC G-CODE OUTPUT</span>
+      <button onclick="copyCode()" style="padding: 4px 12px;">COPY</button>
     </div>
     <textarea id="gcode-textarea"></textarea>
   </div>
@@ -150,43 +104,45 @@
 
 <script>
 let scene, camera, renderer, controls;
-let currentGeometry = null;
+let stockMesh, toolMesh, pathLine;
+let toolpathData = [];
+let isPlaying = false;
+let simIndex = 0;
 let cmInstance = null;
+let animFrameId = null;
 
-// Initialize Three.js
+// --- 3D SETUP ---
 function initThree() {
-  const container = document.getElementById('three-container');
-  
+  const canvas = document.getElementById('three-canvas');
   scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x0f172a, 0.005);
+  scene.fog = new THREE.Fog(0x0b1120, 200, 600);
 
-  camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 2000);
-  camera.position.set(150, 150, 200);
+  camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 1, 2000);
+  camera.position.set(150, 150, 150);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setSize(container.clientWidth, container.clientHeight);
-  renderer.setPixelRatio(window.devicePixelRatio);
-  container.appendChild(renderer.domElement);
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
 
-  // Lighting
-  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-  scene.add(ambient);
-  
+  // Lights
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
   const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
   dirLight.position.set(100, 200, 100);
   scene.add(dirLight);
 
   // Grid
-  const gridHelper = new THREE.GridHelper(400, 40, 0x334155, 0x1e293b);
-  scene.add(gridHelper);
-  
-  // Axes
-  const axesHelper = new THREE.AxesHelper(50);
-  scene.add(axesHelper);
+  const grid = new THREE.GridHelper(500, 50, 0x334155, 0x1e293b);
+  grid.position.y = -1;
+  scene.add(grid);
+
+  // Tool (Generic cylinder for now)
+  const toolGeo = new THREE.CylinderGeometry(2, 2, 30, 16);
+  const toolMat = new THREE.MeshStandardMaterial({ color: 0xef4444, metalness: 1, roughness: 0.2 });
+  toolMesh = new THREE.Mesh(toolGeo, toolMat);
+  toolMesh.visible = false;
+  scene.add(toolMesh);
 
   animate();
 }
@@ -197,164 +153,177 @@ function animate() {
   renderer.render(scene, camera);
 }
 
-// Handle UI Toggle
+// --- UI LOGIC ---
 function toggleUI() {
   const type = document.getElementById('machine-type').value;
   document.getElementById('lathe-ui').classList.toggle('active', type === 'lathe');
   document.getElementById('mill-ui').classList.toggle('active', type === 'mill');
-  drawStock();
+  updateStock();
 }
 
-// Draw Stock Material
-function drawStock() {
-  if (!scene) return;
-  
-  // Clear existing stock/toolpaths
-  const toRemove = [];
-  scene.children.forEach(child => {
-    if (child.name === 'stock' || child.name === 'toolpath') toRemove.push(child);
-  });
-  toRemove.forEach(child => scene.remove(child));
+function updateStock() {
+  if (stockMesh) scene.remove(stockMesh);
+  if (pathLine) scene.remove(pathLine);
+  toolMesh.visible = false;
+  document.getElementById('sim-controls').style.display = 'none';
 
   const type = document.getElementById('machine-type').value;
-  const material = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8, roughness: 0.4, transparent: true, opacity: 0.8 });
+  const mat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.3, metalness: 0.5 });
 
   if (type === 'lathe') {
-    const dia = parseFloat(document.getElementById('l-dia').value);
-    const zlen = Math.abs(parseFloat(document.getElementById('l-zend').value));
+    const d = parseFloat(document.getElementById('l-dia').value);
+    const l = parseFloat(document.getElementById('l-len').value);
+    stockMesh = new THREE.Mesh(new THREE.CylinderGeometry(d/2, d/2, l, 64), mat);
+    stockMesh.rotation.x = Math.PI / 2;
+    stockMesh.position.z = -l / 2;
     
-    const geo = new THREE.CylinderGeometry(dia/2, dia/2, zlen, 64);
-    const mesh = new THREE.Mesh(geo, material);
-    mesh.name = 'stock';
-    mesh.rotation.x = Math.PI / 2;
-    mesh.position.z = -zlen / 2;
-    scene.add(mesh);
+    // Lathe tool geometry
+    toolMesh.geometry = new THREE.ConeGeometry(4, 20, 4);
+    toolMesh.rotation.x = Math.PI;
   } else {
     const x = parseFloat(document.getElementById('m-x').value);
     const y = parseFloat(document.getElementById('m-y').value);
-    const z = Math.abs(parseFloat(document.getElementById('m-z').value));
+    stockMesh = new THREE.Mesh(new THREE.BoxGeometry(x, 20, y), mat);
+    stockMesh.position.set(x/2, -10, y/2);
     
-    const geo = new THREE.BoxGeometry(x, z, y);
-    const mesh = new THREE.Mesh(geo, material);
-    mesh.name = 'stock';
-    mesh.position.y = -z / 2;
-    scene.add(mesh);
+    // Mill tool geometry
+    const td = parseFloat(document.getElementById('m-tool').value);
+    toolMesh.geometry = new THREE.CylinderGeometry(td/2, td/2, 40, 16);
+    toolMesh.rotation.set(0, 0, 0);
   }
+  scene.add(stockMesh);
+  camera.lookAt(0, 0, 0);
 }
 
-// File Upload
+// --- API CALLS ---
 async function uploadFile() {
   const file = document.getElementById('file-input').files[0];
   if (!file) return;
-
-  document.getElementById('status').textContent = "Parsing geometry...";
+  document.getElementById('status').textContent = "Parsing...";
+  
   const fd = new FormData();
   fd.append("file", file);
-  fd.append("scale", "1.0");
-
+  
   try {
     const res = await fetch("/api/upload", { method: "POST", body: fd });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Upload failed");
-    
-    currentGeometry = data.geometry;
-    document.getElementById('status').textContent = `Loaded: ${data.filename} (${currentGeometry.entities.length} paths)`;
-    document.getElementById('gen-btn').disabled = false;
-    drawStock();
-  } catch (e) {
-    document.getElementById('status').textContent = "Error";
-    alert(e.message);
-  }
+    document.getElementById('status').textContent = `Loaded: ${data.filename}`;
+    document.getElementById('btn-gen').disabled = false;
+    updateStock();
+  } catch(e) { alert(e.message); }
 }
 
-// Generate G-Code
-async function generateGCode() {
-  document.getElementById('status').textContent = "Generating toolpath...";
+async function generateCode() {
+  document.getElementById('status').textContent = "Generating Toolpath...";
   const type = document.getElementById('machine-type').value;
   
-  const cfg = {
-    machine_type: type,
-    controller: "fanuc",
-    units: "mm",
-    tool: { number: 1, diameter: 6.0 },
-    spindle_rpm: 3000,
-    feed_rate: parseFloat(document.getElementById('feed').value),
-    depth_of_cut: 2.0,
-    safe_z: 50.0,
-    coolant: true,
-    operation: type === 'lathe' ? 'turn_rough' : 'pocket',
-    stock: type === 'lathe' ? {
-      diameter: parseFloat(document.getElementById('l-dia').value),
-      final_diameter: parseFloat(document.getElementById('l-final').value),
-      z_end: parseFloat(document.getElementById('l-zend').value)
-    } : {
-      x_max: parseFloat(document.getElementById('m-x').value),
-      y_max: parseFloat(document.getElementById('m-y').value),
-      z_bottom: parseFloat(document.getElementById('m-z').value)
+  const payload = {
+    geometry: { entities: [], bbox: {} }, // Dummy geometry for this demo
+    config: {
+      machine_type: type,
+      stock_diameter: parseFloat(document.getElementById('l-dia')?.value || 50),
+      stock_length: parseFloat(document.getElementById('l-len')?.value || 150),
+      tool_diameter: parseFloat(document.getElementById('m-tool')?.value || 10),
+      depth_of_cut: parseFloat(document.getElementById('doc').value),
+      feed_rate: parseFloat(document.getElementById('feed').value),
+      spindle_rpm: 3000,
+      safe_z: 20
     }
   };
 
   try {
     const res = await fetch("/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ geometry: currentGeometry, config: cfg })
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
     });
-    
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Generation failed");
     
-    document.getElementById('status').textContent = "Toolpath Generated";
+    toolpathData = data.toolpath;
+    document.getElementById('status').textContent = "Simulation Ready";
     document.getElementById('code-panel').style.display = 'flex';
     setCode(data.gcode);
-    drawToolpath(data.toolpath);
     
-  } catch (e) {
-    document.getElementById('status').textContent = "Error";
-    alert(e.message);
+    drawToolpath();
+    setupSimulation();
+    
+  } catch(e) { alert(e.message); }
+}
+
+// --- SIMULATION LOGIC ---
+function drawToolpath() {
+  if (pathLine) scene.remove(pathLine);
+  const points = toolpathData.map(p => new THREE.Vector3(p[0], p[1], p[2]));
+  const geo = new THREE.BufferGeometry().setFromPoints(points);
+  const mat = new THREE.LineBasicMaterial({ color: 0x0ea5e9, linewidth: 2 });
+  pathLine = new THREE.Line(geo, mat);
+  scene.add(pathLine);
+  
+  toolMesh.visible = true;
+  toolMesh.position.set(points[0].x, points[0].y, points[0].z);
+}
+
+function setupSimulation() {
+  document.getElementById('sim-controls').style.display = 'flex';
+  document.getElementById('sim-slider').max = toolpathData.length - 1;
+  document.getElementById('sim-slider').value = 0;
+  simIndex = 0;
+  isPlaying = false;
+  document.getElementById('btn-play').textContent = "PLAY";
+  if(animFrameId) cancelAnimationFrame(animFrameId);
+}
+
+function togglePlay() {
+  isPlaying = !isPlaying;
+  document.getElementById('btn-play').textContent = isPlaying ? "PAUSE" : "PLAY";
+  if (isPlaying) runSimulation();
+}
+
+function runSimulation() {
+  if (!isPlaying) return;
+  if (simIndex < toolpathData.length - 1) {
+    simIndex += 1;
+    document.getElementById('sim-slider').value = simIndex;
+    updateToolPosition();
+    // Adjust speed (skip frames for longer programs)
+    animFrameId = setTimeout(() => requestAnimationFrame(runSimulation), 50);
+  } else {
+    isPlaying = false;
+    document.getElementById('btn-play').textContent = "REPLAY";
   }
 }
 
-// Draw Toolpath in 3D
-function drawToolpath(coords) {
-  if (!scene || !coords || coords.length < 2) return;
-  
-  const points = coords.map(p => new THREE.Vector3(p[0], p[1], p[2]));
-  const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  
-  const material = new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 3 });
-  const line = new THREE.Line(geometry, material);
-  line.name = 'toolpath';
-  scene.add(line);
+function scrubSimulation(val) {
+  simIndex = parseInt(val);
+  updateToolPosition();
 }
 
-// CodeMirror Setup
+function updateToolPosition() {
+  const p = toolpathData[simIndex];
+  if (p) {
+    toolMesh.position.set(p[0], p[1], p[2]);
+    
+    // For Mill, move tool tip to coordinates
+    if (document.getElementById('machine-type').value === 'mill') {
+        toolMesh.position.y = p[1] + 20; // Offset cylinder
+    }
+  }
+}
+
+// --- UTILS ---
 function setCode(code) {
-  if (!cmInstance) {
-    cmInstance = CodeMirror.fromTextArea(document.getElementById('gcode-textarea'), {
-      lineNumbers: true, readOnly: false, theme: "default"
-    });
-  }
+  if (!cmInstance) cmInstance = CodeMirror.fromTextArea(document.getElementById('gcode-textarea'), { lineNumbers: true, readOnly: true });
   cmInstance.setValue(code);
 }
+function copyCode() { navigator.clipboard.writeText(cmInstance.getValue()); alert("Copied!"); }
 
-function copyCode() {
-  const code = cmInstance ? cmInstance.getValue() : document.getElementById('gcode-textarea').value;
-  navigator.clipboard.writeText(code);
-  alert("G-Code Copied!");
-}
-
-// Window Resize Handler
+// Resize
 window.addEventListener('resize', () => {
-  const container = document.getElementById('three-container');
-  if (renderer && camera) {
-    camera.aspect = container.clientWidth / container.clientHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(container.clientWidth, container.clientHeight);
-  }
+  const canvas = document.getElementById('three-canvas');
+  camera.aspect = canvas.clientWidth / canvas.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 });
 
-// Init
 initThree();
 toggleUI();
 </script>
